@@ -26,5 +26,6 @@ users.db
 logs/
 archive/
 *.log
+docs/
 
 generated_report/
