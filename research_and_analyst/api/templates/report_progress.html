@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Progress | Tech Company Due Diligence</title>
+  <link rel="stylesheet" href="/static/css/styles.css" />
+
+  <!-- Spinner styling -->
+  <style>
+    #spinner-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(3px);
+      z-index: 9999;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+      color: white;
+      font-family: sans-serif;
+    }
+
+    .spinner {
+      border: 6px solid #f3f3f3;
+      border-top: 6px solid #3498db;
+      border-radius: 50%;
+      width: 70px;
+      height: 70px;
+      animation: spin 1s linear infinite;
+      margin-bottom: 15px;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .risk-row {
+      display: flex;
+      gap: 8px;
+      margin: 12px 0;
+      flex-wrap: wrap;
+    }
+    .risk-pill {
+      border-radius: 12px;
+      padding: 6px 10px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .risk-high { background: #ffebee; color: #b71c1c; }
+    .risk-medium { background: #fff8e1; color: #e65100; }
+    .risk-low { background: #e8f5e9; color: #1b5e20; }
+    .recommendation-box {
+      margin-top: 12px;
+      padding: 10px;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      background: #fafafa;
+      font-size: 14px;
+    }
+    .metric-box {
+      margin-top: 12px;
+      padding: 10px;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      background: #fcfcfd;
+      font-size: 13px;
+    }
+    .retry-box {
+      margin-top: 12px;
+      padding: 10px;
+      border: 1px solid #ffe0b2;
+      border-radius: 8px;
+      background: #fff8e1;
+      font-size: 13px;
+    }
+    .analyst-list {
+      margin: 12px 0;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+    .analyst-card {
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 10px;
+      background: #fcfcff;
+    }
+    .analyst-meta {
+      font-size: 13px;
+      color: #4b5563;
+      margin-bottom: 6px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="report-container">
+    <div class="card">
+      <h2>🏢 Company: {{ company_name }}</h2>
+      {% if focus %}
+        <p class="subtitle">Focus: {{ focus }}</p>
+      {% endif %}
+      {% if target_role %}
+        <p class="subtitle">Target Role: {{ target_role }}</p>
+      {% endif %}
+      <p class="subtitle">Task ID: {{ task_id }}</p>
+
+      {% if error and status != "completed" %}
+        <p class="note">Error: {{ error }}</p>
+      {% endif %}
+
+      {% if status in ["running_generation", "pending"] %}
+        <p class="subtitle">Generating initial draft... this page auto-refreshes.</p>
+      {% elif status == "awaiting_feedback" %}
+        <p class="subtitle">Initial draft is ready. Add feedback to generate final report 👇</p>
+        <p class="note">Submit feedback to regenerate analyst plan. Leave feedback empty only when you are satisfied and ready to continue.</p>
+        <p class="note">Current analyst version: v{{ analyst_version or 0 }}</p>
+        {% if analysts_preview %}
+          <h3>Generated Analyst Plan</h3>
+          <p class="note">Review analyst roles and focus areas before submitting feedback.</p>
+          <div class="analyst-list">
+            {% for analyst in analysts_preview %}
+              <div class="analyst-card">
+                <div><strong>{{ analyst.name or "Analyst" }}</strong></div>
+                <div class="analyst-meta">
+                  Role: {{ analyst.role or "N/A" }} | Affiliation: {{ analyst.affiliation or "N/A" }}
+                </div>
+                <div>{{ analyst.description or "No detailed focus provided." }}</div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="note">Analyst plan preview is unavailable. You can still submit feedback.</p>
+        {% endif %}
+        <form id="feedbackForm" method="post" action="/submit_feedback">
+          <input type="hidden" name="company_name" value="{{ company_name }}">
+          <input type="hidden" name="focus" value="{{ focus }}">
+          <input type="hidden" name="target_role" value="{{ target_role }}">
+          <input type="hidden" name="task_id" value="{{ task_id }}">
+          <textarea
+            name="feedback"
+            rows="6"
+            placeholder="Enter feedback here...">{{ feedback }}</textarea>
+          <button type="submit">Submit Feedback</button>
+        </form>
+
+        <p class="note">
+          💡 Tip: Provide specific feedback like "Add more technical explanation" or "Focus on real-world examples".
+        </p>
+      {% elif status == "running_feedback" %}
+        <p class="subtitle">Applying feedback and creating final report... this page auto-refreshes.</p>
+      {% elif status == "completed" and pdf_path %}
+        <h3>Final Report Ready!</h3>
+        <div class="risk-row">
+          <span class="risk-pill risk-high">High: {{ risk_summary.high if risk_summary else 0 }}</span>
+          <span class="risk-pill risk-medium">Medium: {{ risk_summary.medium if risk_summary else 0 }}</span>
+          <span class="risk-pill risk-low">Low: {{ risk_summary.low if risk_summary else 0 }}</span>
+        </div>
+        {% if final_recommendation %}
+          <div class="recommendation-box">
+            <strong>Final recommendation:</strong> {{ final_recommendation }}
+          </div>
+        {% endif %}
+        <div class="downloads">
+          <a href="/download/{{ doc_path | basename }}?task_id={{ task_id }}" class="download-btn">⬇️ Download DOCX</a>
+          <a href="/download/{{ pdf_path | basename }}?task_id={{ task_id }}" class="download-btn">📘 Download PDF</a>
+        </div>
+        <p class="subtitle">Your due diligence report was successfully generated</p>
+        <div class="metric-box">
+          <div><strong>Latency:</strong> total {{ metrics.latency.created_to_completed_ms if metrics and metrics.latency else 0 }} ms, generation {{ metrics.latency.generation_ms if metrics and metrics.latency else 0 }} ms, feedback {{ metrics.latency.feedback_ms if metrics and metrics.latency else 0 }} ms</div>
+          <div><strong>Token usage:</strong>
+            {% if metrics and metrics.tokens and metrics.tokens.usage_available %}
+              total {{ metrics.tokens.total_tokens }} (prompt {{ metrics.tokens.prompt_tokens }}, completion {{ metrics.tokens.completion_tokens }}), calls {{ metrics.tokens.llm_calls }}
+            {% else %}
+              N/A (provider did not return usage metadata)
+            {% endif %}
+          </div>
+        </div>
+      {% elif status == "failed" %}
+        <p class="subtitle">Task failed. Please go back and submit again.</p>
+        <div class="retry-box">
+          <div>Auto retry status:
+            {% if auto_retry and failed_stage and auto_retry[failed_stage] %}
+              {{ auto_retry[failed_stage].attempted }} / {{ auto_retry[failed_stage].max }}
+            {% else %}
+              0 / 1
+            {% endif %}
+          </div>
+          <button type="button" onclick="retryCurrentTask()">Retry now</button>
+        </div>
+        <div class="metric-box">
+          <div><strong>Latency so far:</strong> generation {{ metrics.latency.generation_ms if metrics and metrics.latency else 0 }} ms, feedback {{ metrics.latency.feedback_ms if metrics and metrics.latency else 0 }} ms</div>
+          <div><strong>Token usage so far:</strong> {{ metrics.tokens.total_tokens if metrics and metrics.tokens else 0 }}</div>
+        </div>
+      {% else %}
+        <p class="subtitle">Task status: {{ status }}</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Spinner overlay -->
+  <div id="spinner-overlay">
+    <div class="spinner"></div>
+    <p>Processing feedback... please wait</p>
+  </div>
+
+  <!-- Spinner script -->
+  <script>
+    const taskId = "{{ task_id }}";
+    const status = "{{ status }}";
+
+    if (taskId && ["pending", "running_generation", "running_feedback"].includes(status)) {
+      setInterval(async () => {
+        try {
+          const res = await fetch(`/tasks/${taskId}`);
+          if (!res.ok) return;
+          const data = await res.json();
+          if (data.status && data.status !== status) {
+            window.location.href = `/report_progress/${taskId}`;
+          }
+        } catch (err) {
+          // transient polling error
+        }
+      }, 2500);
+    }
+
+    const fbForm = document.getElementById("feedbackForm");
+    const fbSpinner = document.getElementById("spinner-overlay");
+    if (fbForm && fbSpinner) {
+      fbForm.addEventListener("submit", () => {
+        fbSpinner.style.display = "flex";
+      });
+    }
+
+    async function retryCurrentTask() {
+      if (!taskId) return;
+      const res = await fetch(`/tasks/${taskId}/retry`, { method: "POST" });
+      const data = await res.json();
+      alert(data.message || data.error || "Retry requested");
+      if (!data.error) {
+        window.location.href = `/report_progress/${taskId}`;
+      }
+    }
+  </script>
+</body>
+</html>

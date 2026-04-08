@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Signup | Autonomous Report Generator</title>
+  <link rel="stylesheet" href="/static/css/styles.css" />
+  <style>
+    .password-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .toggle-password {
+      position: absolute;
+      right: 15px;
+      top: 50%;
+      transform: translateY(-50%);
+      cursor: pointer;
+      font-size: 1.1rem;
+      color: #475569;
+      transition: color 0.2s ease;
+    }
+
+    .toggle-password:hover {
+      color: #2563eb;
+    }
+
+    .password-hint {
+      font-size: 0.8rem;
+      color: #64748b;
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="auth-container">
+    <div class="auth-card">
+      <h2>📄 Signup</h2>
+
+      {% if error %}
+        <p class="error">{{ error }}</p>
+      {% endif %}
+
+      <form method="post" action="/signup" onsubmit="return validateForm()">
+        <input
+          type="text"
+          name="username"
+          placeholder="Choose a username"
+          minlength="3"
+          maxlength="32"
+          required
+        />
+
+        <div class="password-wrapper">
+          <input
+            type="password"
+            name="password"
+            id="password"
+            placeholder="Choose a password"
+            minlength="6"
+            maxlength="72"
+            required
+          />
+          <span class="toggle-password" id="togglePassword">👁</span>
+        </div>
+
+        <p class="password-hint">
+          Password must be 6–72 characters (bcrypt limit)
+        </p>
+
+        <button type="submit">Create Account</button>
+      </form>
+
+      <p class="switch">
+        Already have an account?
+        <a href="/">Login</a>
+      </p>
+    </div>
+  </div>
+
+  <script>
+    const togglePassword = document.getElementById("togglePassword");
+    const passwordField = document.getElementById("password");
+
+    togglePassword.addEventListener("click", () => {
+      const type =
+        passwordField.getAttribute("type") === "password" ? "text" : "password";
+      passwordField.setAttribute("type", type);
+      togglePassword.textContent = type === "password" ? "👁" : "🙈";
+    });
+
+    // 🧩 Frontend password validation
+    function validateForm() {
+      const password = passwordField.value;
+      if (password.length > 72) {
+        alert("Password cannot exceed 72 characters (bcrypt limit)");
+        return false;
+      }
+      return true;
+    }
+  </script>
+</body>
+</html>

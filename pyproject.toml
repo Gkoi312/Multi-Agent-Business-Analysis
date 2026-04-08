@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multi-agent-business-analysis"
+version = "0.1.0"
+description = "Multi-agent business analysis and due diligence workflow built with LangGraph and FastAPI."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aiofiles>=23.2.1",
+    "bcrypt==3.2.2",
+    "fastapi==0.120.0",
+    "httpx==0.28.1",
+    "jinja2==3.1.6",
+    "langchain-community>=0.3.30",
+    "langchain-core>=0.3.78",
+    "langchain-google-genai==2.1.8",
+    "langchain-groq==0.3.6",
+    "langchain-openai==0.3.32",
+    "langgraph==0.6.8",
+    "passlib==1.7.4",
+    "python-docx==1.2.0",
+    "python-dotenv>=1.0.1",
+    "python-multipart",
+    "reportlab==4.4.4",
+    "sqlalchemy==2.0.43",
+    "structlog==25.4.0",
+    "tavily-python>=0.7.12",
+    "uvicorn==0.38.0",
+    "wikipedia>=1.4.0",
+]
+
+authors = [{ name = "Sunny Savita" }]
+license = { text = "Proprietary" }
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["research_and_analyst*"]
+
