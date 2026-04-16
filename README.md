@@ -1,13 +1,13 @@
 # Multi-Agent Business Analysis
 
 A `LangGraph + FastAPI` multi-agent business analysis and due diligence system.
-Users can submit company information through a web interface, generate analyst personas, run web research and interview workflows, consolidate findings, and export reports in `DOCX` and `PDF` formats.
+The project now uses a separated architecture: a `FastAPI` backend that exposes JSON APIs and a `React + Vite` frontend that handles the browser experience.
 
 ## Highlights
 
 - Multi-agent due diligence workflow built on `LangGraph`
 - Human-in-the-loop analyst review and regeneration before research execution
-- Web-based task management flow built with `FastAPI` and server-rendered templates
+- Separated frontend and backend architecture with JSON APIs
 - Parallel interview and report-writing pipeline
 - Exportable report outputs in both `DOCX` and `PDF`
 - Observable async runtime with persisted task state and event logs
@@ -26,7 +26,7 @@ It is designed as a practical demo and learning project for:
 
 ## Current Status
 
-- End-to-end web flow is implemented: sign up / log in -> submit company information -> generate analyst draft -> collect feedback -> regenerate analysts across multiple rounds -> continue research and report generation -> export files
+- End-to-end web flow is implemented through API + SPA: sign up / log in -> submit company information -> generate analyst draft -> collect feedback -> regenerate analysts across multiple rounds -> continue research and report generation -> export files
 - Asynchronous task runtime is implemented with task states, event streams, retry support, and dependency blocking
 - Multiple model providers are supported: `openai`, `google`, and `groq`
 - Report outputs include risk frequency statistics (`high` / `medium` / `low`) and a final recommendation summary
@@ -52,46 +52,40 @@ It is designed as a practical demo and learning project for:
 ## Tech Stack
 
 - Python 3.11+
-- FastAPI / Uvicorn / Jinja2
+- FastAPI / Uvicorn
 - LangGraph / LangChain
 - Tavily Search
 - SQLAlchemy + SQLite for user accounts
 - `python-docx` + `reportlab` for report export
 - `structlog` for structured logging
+- React / Vite / React Router
 
 ## Project Structure
 
 ```text
 .
-├── research_and_analyst/
-│   ├── api/
-│   │   ├── main.py
-│   │   ├── routes/report_routes.py
-│   │   ├── services/
-│   │   │   ├── report_service.py
-│   │   │   └── task_runtime.py
-│   │   ├── models/request_models.py
-│   │   └── templates/
-│   ├── workflows/
-│   │   ├── report_generator_workflow.py
-│   │   └── interview_workflow.py
-│   ├── schemas/models.py
-│   ├── utils/model_loader.py
-│   ├── database/db_config.py
-│   ├── prompt_lib/
-│   ├── logger/
-│   └── exception/custom_exception.py
-├── static/
-├── generated_report/
-├── .runtime/
-├── logs/
+├── backend/
+│   ├── start_api.py
+│   ├── app/
+│   │   ├── api/
+│   │   ├── workflows/
+│   │   ├── schemas/
+│   │   ├── database/
+│   │   └── ...
+│   ├── .runtime/
+│   ├── generated_report/
+│   └── users.db
+├── frontend/
+│   ├── src/
+│   ├── package.json
+│   └── vite.config.ts
 ├── requirements.txt
 └── pyproject.toml
 ```
 
 ## Quick Start
 
-### 1. Install dependencies
+### 1. Install backend dependencies
 
 ```bash
 python -m venv .venv
@@ -128,29 +122,40 @@ GROQ_API_KEY=
 # Required: web search
 TAVILY_API_KEY=your-tavily-key
 
-# Optional: embeddings
-EMBEDDING_MODEL_NAME=models/text-embedding-004
+# Backend runtime root for separated deployment
+APP_ROOT=backend
+
+# Frontend dev origins allowed by CORS
+FRONTEND_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 ```
 
 > Do not commit real secrets from `.env` to version control.
 
-### 3. Start the server
+### 3. Start the backend API
 
 ```bash
-uvicorn research_and_analyst.api.main:app --host 0.0.0.0 --port 8000 --reload
+python backend/start_api.py
 ```
 
-Then open `http://localhost:8000` in your browser.
+### 4. Start the frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Then open `http://localhost:5173` in your browser.
 
 ## Usage Flow
 
-1. Sign up and log in
+1. Sign up and log in through the frontend
 2. Fill in the dashboard form:
    - `company_name` (required)
    - `focus` (optional)
    - `target_role` (optional)
 3. The system enters `running_generation` and executes until the `human_feedback` interrupt point, where analyst drafts are generated
-4. Task status changes to `awaiting_feedback`, and you can review the analyst plan on the progress page
+4. Task status changes to `awaiting_feedback`, and you can review the analyst plan on the task detail page
 5. If feedback is provided, the system enters `running_feedback`, regenerates analysts, and returns to `awaiting_feedback`
 6. If feedback is empty, the system treats the plan as approved and continues research, interviews, and report generation
 7. When the task reaches `completed`, download the generated `DOCX` / `PDF` files and review the risk metrics and recommendation summary
@@ -168,7 +173,7 @@ User input -> analyst draft -> human feedback loop -> research + interviews
 
 ```text
 +------------------+      +------------------+      +------------------+
-|  FastAPI Web UI  +----->+   report_routes  +----->+    TaskRuntime   |
+| React + Vite SPA |----->+ FastAPI JSON API +----->+    TaskRuntime   |
 +------------------+      +------------------+      +------------------+
                                                        |
                                                        v

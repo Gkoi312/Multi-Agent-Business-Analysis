@@ -36,6 +36,6 @@ authors = [{ name = "Sunny Savita" }]
 license = { text = "Proprietary" }
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["research_and_analyst*"]
+where = ["backend"]
+include = ["app*"]
 

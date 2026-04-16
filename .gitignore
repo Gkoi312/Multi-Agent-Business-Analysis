@@ -29,3 +29,5 @@ archive/
 docs/
 
 generated_report/
+frontend/node_modules/
+frontend/dist/

@@ -1,13 +1,13 @@
 # Multi-Agent Business Analysis
 
 一个基于 `LangGraph + FastAPI` 的多智能体商业分析与企业尽调系统。  
-用户可以通过 Web 页面提交公司信息，生成分析师角色，执行联网研究与访谈工作流，整合分析结果，并最终导出 `DOCX` 和 `PDF` 报告。
+项目现在采用前后端分离架构：后端使用 `FastAPI` 提供 JSON API，前端使用 `React + Vite` 提供浏览器界面。
 
 ## 项目亮点
 
 - 基于 `LangGraph` 构建的多智能体尽调工作流
 - 支持 Human-in-the-loop 的分析师审核与重生成
-- 基于 `FastAPI` 和服务端模板的 Web 任务管理流程
+- 基于 JSON API 的前后端分离任务管理流程
 - 支持并行访谈与并行报告撰写
 - 支持导出 `DOCX` 与 `PDF` 双格式报告
 - 支持异步任务运行时观测、任务状态持久化与事件日志记录
@@ -26,7 +26,7 @@
 
 ## 当前状态
 
-- 已实现完整 Web 流程：注册 / 登录 -> 提交公司信息 -> 生成分析师草案 -> 人工反馈 -> 多轮重生分析师 -> 继续检索与报告生成 -> 导出文件
+- 已实现完整 API + SPA 流程：注册 / 登录 -> 提交公司信息 -> 生成分析师草案 -> 人工反馈 -> 多轮重生分析师 -> 继续检索与报告生成 -> 导出文件
 - 已实现异步任务运行时，支持任务状态、事件流、失败重试和依赖阻塞
 - 已支持多模型提供方切换：`openai`、`google`、`groq`
 - 报告结果包含风险词频统计（`high` / `medium` / `low`）以及 Final Recommendation 摘要
@@ -52,46 +52,40 @@
 ## 技术栈
 
 - Python 3.11+
-- FastAPI / Uvicorn / Jinja2
+- FastAPI / Uvicorn
 - LangGraph / LangChain
 - Tavily Search
 - SQLAlchemy + SQLite 用户账户存储
 - `python-docx` + `reportlab` 报告导出
 - `structlog` 结构化日志
+- React / Vite / React Router
 
 ## 项目结构
 
 ```text
 .
-├── research_and_analyst/
-│   ├── api/
-│   │   ├── main.py
-│   │   ├── routes/report_routes.py
-│   │   ├── services/
-│   │   │   ├── report_service.py
-│   │   │   └── task_runtime.py
-│   │   ├── models/request_models.py
-│   │   └── templates/
-│   ├── workflows/
-│   │   ├── report_generator_workflow.py
-│   │   └── interview_workflow.py
-│   ├── schemas/models.py
-│   ├── utils/model_loader.py
-│   ├── database/db_config.py
-│   ├── prompt_lib/
-│   ├── logger/
-│   └── exception/custom_exception.py
-├── static/
-├── generated_report/
-├── .runtime/
-├── logs/
+├── backend/
+│   ├── start_api.py
+│   ├── app/
+│   │   ├── api/
+│   │   ├── workflows/
+│   │   ├── schemas/
+│   │   ├── database/
+│   │   └── ...
+│   ├── .runtime/
+│   ├── generated_report/
+│   └── users.db
+├── frontend/
+│   ├── src/
+│   ├── package.json
+│   └── vite.config.ts
 ├── requirements.txt
 └── pyproject.toml
 ```
 
 ## 快速开始
 
-### 1. 安装依赖
+### 1. 安装后端依赖
 
 ```bash
 python -m venv .venv
@@ -128,29 +122,40 @@ GROQ_API_KEY=
 # 必填：联网搜索
 TAVILY_API_KEY=your-tavily-key
 
-# 可选：Embedding
-EMBEDDING_MODEL_NAME=models/text-embedding-004
+# 后端运行根目录
+APP_ROOT=backend
+
+# 允许前端开发域名跨域访问
+FRONTEND_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 ```
 
 > 请不要把 `.env` 中的真实密钥提交到版本库。
 
-### 3. 启动服务
+### 3. 启动后端 API
 
 ```bash
-uvicorn research_and_analyst.api.main:app --host 0.0.0.0 --port 8000 --reload
+python backend/start_api.py
 ```
 
-然后在浏览器中打开 `http://localhost:8000`。
+### 4. 启动前端
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+然后在浏览器中打开 `http://localhost:5173`。
 
 ## 使用流程
 
-1. 注册并登录
+1. 通过前端页面注册并登录
 2. 在 Dashboard 中填写：
    - `company_name`（必填）
    - `focus`（可选）
    - `target_role`（可选）
 3. 系统进入 `running_generation`，先执行到 `human_feedback` 中断点并生成分析师草案
-4. 任务状态变为 `awaiting_feedback`，你可以在进度页查看分析师方案并提交反馈
+4. 任务状态变为 `awaiting_feedback`，你可以在任务详情页查看分析师方案并提交反馈
 5. 如果提交了反馈，系统进入 `running_feedback`，重生分析师后回到 `awaiting_feedback`
 6. 如果反馈为空，系统将其视为已确认，并继续执行研究、访谈和报告生成
 7. 当任务状态变为 `completed` 后，可以下载生成的 `DOCX` / `PDF` 文件，并查看风险指标与建议摘要
@@ -168,7 +173,7 @@ uvicorn research_and_analyst.api.main:app --host 0.0.0.0 --port 8000 --reload
 
 ```text
 +------------------+      +------------------+      +------------------+
-|  FastAPI Web UI  +----->+   report_routes  +----->+    TaskRuntime   |
+| React + Vite SPA |----->+ FastAPI JSON API +----->+    TaskRuntime   |
 +------------------+      +------------------+      +------------------+
                                                        |
                                                        v
