@@ -105,7 +105,7 @@ class AutonomousReportGenerator:
             started_at = time.perf_counter()
             analysts = structured_llm.invoke([
                 SystemMessage(content=system_prompt),
-                HumanMessage(content="Generate the set of analysts."),
+                HumanMessage(content="请生成这一组分析师角色。"),
             ])
             latency_ms = int((time.perf_counter() - started_at) * 1000)
             usage = self._extract_usage(analysts)
@@ -148,7 +148,7 @@ class AutonomousReportGenerator:
 
         try:
             if not sections:
-                sections = ["No sections generated — please verify interview stage."]
+                sections = ["未生成任何章节，请检查访谈阶段是否正常完成。"]
             self.logger.info("Writing report", research_query=research_query)
             system_prompt = REPORT_WRITER_INSTRUCTIONS.render(research_query=research_query)
             started_at = time.perf_counter()
@@ -189,7 +189,7 @@ class AutonomousReportGenerator:
             started_at = time.perf_counter()
             intro = self.llm.invoke([
                 SystemMessage(content=system_prompt),
-                HumanMessage(content="Write the report introduction")
+                HumanMessage(content="请撰写报告引言。")
             ])
             latency_ms = int((time.perf_counter() - started_at) * 1000)
             usage = self._extract_usage(intro)
@@ -224,7 +224,7 @@ class AutonomousReportGenerator:
             started_at = time.perf_counter()
             conclusion = self.llm.invoke([
                 SystemMessage(content=system_prompt),
-                HumanMessage(content="Write the report conclusion")
+                HumanMessage(content="请撰写报告结论。")
             ])
             latency_ms = int((time.perf_counter() - started_at) * 1000)
             usage = self._extract_usage(conclusion)
@@ -408,7 +408,7 @@ class AutonomousReportGenerator:
             interview_graph = InterviewGraphBuilder(self.llm, self.tavily_search).build()
 
             def initiate_all_interviews(state: ResearchGraphState):
-                research_query = state.get("research_query", "Untitled due diligence brief")
+                research_query = state.get("research_query", "未命名尽职调查任务")
                 analysts = state.get("analysts", [])
                 if not analysts:
                     self.logger.warning("No analysts found — skipping interviews")
@@ -418,7 +418,7 @@ class AutonomousReportGenerator:
                         "conduct_interview",
                         {
                             "analyst": analyst,
-                            "messages": [HumanMessage(content=f"So, let's discuss: {research_query}.")],
+                            "messages": [HumanMessage(content=f"我们来讨论这个尽职调查任务：{research_query}")],
                             "turn_count": 0,
                             "context": [],
                             "interview": "",
@@ -479,7 +479,7 @@ if __name__ == "__main__":
         reporter = AutonomousReportGenerator(llm)
         graph = reporter.build_graph()
 
-        research_query = "Perform due diligence research on the company: OpenAI"
+        research_query = "请对 OpenAI 进行尽职调查研究"
         thread = {"configurable": {"thread_id": "1"}}
         reporter.logger.info("Starting report generation pipeline", research_query=research_query)
 
@@ -487,7 +487,7 @@ if __name__ == "__main__":
             pass
 
         state = graph.get_state(thread)
-        feedback = input("\n Enter your feedback or press Enter to continue: ").strip()
+        feedback = input("\n请输入反馈，或直接按回车继续：").strip()
         graph.update_state(thread, {"human_analyst_feedback": feedback}, as_node="human_feedback")
 
         for _ in graph.stream(None, thread, stream_mode="values"):

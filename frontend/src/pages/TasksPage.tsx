@@ -16,7 +16,7 @@ export function TasksPage() {
     ?.returnTo;
   const returnLabel =
     (location.state as { returnTo?: string; returnLabel?: string } | null)?.returnLabel ??
-    "Back to current task";
+    "返回当前任务";
 
   useEffect(() => {
     let ignore = false;
@@ -30,7 +30,7 @@ export function TasksPage() {
       })
       .catch((nextError) => {
         if (!ignore) {
-          setError(nextError instanceof Error ? nextError.message : "Unable to load tasks");
+          setError(nextError instanceof Error ? nextError.message : "无法加载任务列表");
         }
       })
       .finally(() => {
@@ -49,8 +49,8 @@ export function TasksPage() {
       <section className="panel">
         <div className="section-header">
           <div>
-            <h1>My tasks</h1>
-            <p className="muted">Track running, awaiting feedback, failed, and completed jobs.</p>
+            <h1>我的任务</h1>
+            <p className="muted">在这里跟踪进行中、待反馈、失败和已完成的任务。</p>
           </div>
           <div className="button-row">
             {returnTo ? (
@@ -63,13 +63,13 @@ export function TasksPage() {
               </button>
             ) : null}
             <Link className="primary-button link-button" to="/dashboard">
-              Create new report
+              新建报告
             </Link>
           </div>
         </div>
-        {loading ? <p>Loading tasks...</p> : null}
+        {loading ? <p>正在加载任务...</p> : null}
         {error ? <p className="error-text">{error}</p> : null}
-        {!loading && !tasks.length ? <p className="muted">No tasks yet.</p> : null}
+        {!loading && !tasks.length ? <p className="muted">暂无任务。</p> : null}
         <div className="task-grid">
           {tasks.map((task) => (
             <TaskSummaryCard

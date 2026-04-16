@@ -25,7 +25,7 @@ export function DashboardPage() {
       });
       navigate(`/tasks/${task.id}`);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Unable to create task");
+      setError(nextError instanceof Error ? nextError.message : "无法创建任务");
     } finally {
       setSubmitting(false);
     }
@@ -36,21 +36,21 @@ export function DashboardPage() {
       <section className="panel">
         <div className="section-header">
           <div>
-            <h1>Create due diligence task</h1>
+            <h1>创建尽职调查任务</h1>
             <p className="muted">
-              Submit a company, optional focus areas, and target role context. The task
-              starts immediately and can be tracked from the task detail page.
+              填写公司名称、可选的关注重点和目标岗位背景后，任务会立即开始，
+              你可以在任务详情页中持续查看进度。
             </p>
           </div>
           <div className="button-row">
             <Link className="secondary-button link-button" to="/tasks">
-              View all tasks
+              查看全部任务
             </Link>
           </div>
         </div>
         <form className="form-grid" onSubmit={handleSubmit}>
           <label>
-            Company name
+            公司名称
             <input
               onChange={(event) => setCompanyName(event.target.value)}
               required
@@ -58,7 +58,7 @@ export function DashboardPage() {
             />
           </label>
           <label>
-            Focus
+            关注重点
             <textarea
               onChange={(event) => setFocus(event.target.value)}
               rows={4}
@@ -66,7 +66,7 @@ export function DashboardPage() {
             />
           </label>
           <label>
-            Target role
+            目标岗位
             <input
               onChange={(event) => setTargetRole(event.target.value)}
               value={targetRole}
@@ -74,7 +74,7 @@ export function DashboardPage() {
           </label>
           {error ? <p className="error-text">{error}</p> : null}
           <button className="primary-button" disabled={submitting} type="submit">
-            {submitting ? "Starting..." : "Generate report"}
+            {submitting ? "启动中..." : "生成报告"}
           </button>
         </form>
       </section>

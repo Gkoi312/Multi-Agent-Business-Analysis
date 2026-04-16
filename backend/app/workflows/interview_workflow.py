@@ -124,7 +124,7 @@ class InterviewGraphBuilder:
             if not search_docs:
                 self.logger.warning("No search results found")
                 return {
-                    "context": ["[No search results found.]"],
+                    "context": ["[未找到相关搜索结果。]"],
                     "llm_metrics": [
                         {
                             "node": "interview.search_query",
@@ -174,7 +174,7 @@ class InterviewGraphBuilder:
         """
         analyst = state["analyst"]
         messages = state["messages"]
-        context = state.get("context", ["[No context available.]"])
+        context = state.get("context", ["[暂无可用上下文。]"])
 
         try:
             self.logger.info("Generating expert answer", analyst=analyst.name)
@@ -227,7 +227,7 @@ class InterviewGraphBuilder:
         """
         Write a concise report section based on the interview and gathered context.
         """
-        context = state.get("context", ["[No context available.]"])
+        context = state.get("context", ["[暂无可用上下文。]"])
         analyst = state["analyst"]
 
         try:
@@ -236,7 +236,7 @@ class InterviewGraphBuilder:
             started_at = time.perf_counter()
             section = self.llm.invoke(
                 [SystemMessage(content=system_prompt)]
-                + [HumanMessage(content=f"Use this source to write your section: {context}")]
+                + [HumanMessage(content=f"请基于以下资料撰写这一节内容：{context}")]
             )
             latency_ms = int((time.perf_counter() - started_at) * 1000)
             usage = self._extract_usage(section)

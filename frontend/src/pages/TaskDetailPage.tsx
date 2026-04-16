@@ -11,6 +11,35 @@ function fileNameFromPath(path: string) {
   return path.split(/[/\\]/).pop() ?? path;
 }
 
+function getStatusLabel(status: string) {
+  const statusLabels: Record<string, string> = {
+    pending: "待开始",
+    blocked: "已阻塞",
+    running_generation: "生成中",
+    awaiting_feedback: "待反馈",
+    running_feedback: "处理反馈中",
+    failed: "失败",
+    completed: "已完成",
+  };
+  return statusLabels[status] ?? status;
+}
+
+function getEventLabel(event: string) {
+  const eventLabels: Record<string, string> = {
+    "task.created": "任务已创建",
+    "task.started": "任务已开始",
+    "task.completed": "任务状态已更新",
+    "task.failed": "任务失败",
+    "task.retrying": "任务自动重试中",
+    "task.interrupted": "任务被中断",
+    "task.claimed": "任务已领取",
+    "task.dependencies.updated": "任务依赖已更新",
+    "feedback.submitted": "反馈已提交",
+    "analyst.regenerated": "分析师已重新生成",
+  };
+  return eventLabels[event] ?? event;
+}
+
 export function TaskDetailPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -45,7 +74,7 @@ export function TaskDetailPage() {
         }
       } catch (nextError) {
         if (!cancelled) {
-          setError(nextError instanceof Error ? nextError.message : "Unable to load task");
+          setError(nextError instanceof Error ? nextError.message : "无法加载任务详情");
         }
       } finally {
         if (!cancelled) {
@@ -92,7 +121,7 @@ export function TaskDetailPage() {
       setFeedback("");
       setError("");
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Unable to submit feedback");
+      setError(nextError instanceof Error ? nextError.message : "无法提交反馈");
     } finally {
       setSubmitting(false);
     }
@@ -109,7 +138,7 @@ export function TaskDetailPage() {
       setTask(refreshed);
       setError("");
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Unable to retry task");
+      setError(nextError instanceof Error ? nextError.message : "无法重试任务");
     } finally {
       setSubmitting(false);
     }
@@ -118,14 +147,14 @@ export function TaskDetailPage() {
   return (
     <RequireAuth>
       <section className="panel">
-        {loading ? <p>Loading task...</p> : null}
+        {loading ? <p>正在加载任务详情...</p> : null}
         {error ? <p className="error-text">{error}</p> : null}
         {task ? (
           <>
             <div className="section-header">
               <div>
                 <h1>{task.company_name}</h1>
-                <p className="muted">Task ID: {task.id}</p>
+                <p className="muted">任务 ID：{task.id}</p>
               </div>
               <div className="button-row">
                 <button
@@ -139,71 +168,71 @@ export function TaskDetailPage() {
                   }}
                   type="button"
                 >
-                  Back
+                  返回
                 </button>
                 <Link
                   className="secondary-button link-button"
                   state={{
                     returnTo: location.pathname,
-                    returnLabel: `Back to ${task.company_name}`,
+                    returnLabel: `返回 ${task.company_name}`,
                   }}
                   to="/tasks"
                 >
-                  View all tasks
+                  查看全部任务
                 </Link>
                 <Link className="primary-button link-button" to="/dashboard">
-                  Create new report
+                  新建报告
                 </Link>
-                <span className={`status-pill status-${task.status}`}>{task.status}</span>
+                <span className={`status-pill status-${task.status}`}>{getStatusLabel(task.status)}</span>
               </div>
             </div>
 
             <div className="detail-grid">
               <div className="detail-item">
-                <strong>Focus</strong>
-                <span>{task.focus || "Default due diligence focus"}</span>
+                <strong>关注重点</strong>
+                <span>{task.focus || "默认尽职调查重点"}</span>
               </div>
               <div className="detail-item">
-                <strong>Target role</strong>
-                <span>{task.target_role || "Not specified"}</span>
+                <strong>目标岗位</strong>
+                <span>{task.target_role || "未指定"}</span>
               </div>
               <div className="detail-item">
-                <strong>Recommendation</strong>
-                <span>{task.final_recommendation || "Pending"}</span>
+                <strong>最终建议</strong>
+                <span>{task.final_recommendation || "待生成"}</span>
               </div>
               <div className="detail-item">
-                <strong>Risk summary</strong>
+                <strong>风险汇总</strong>
                 <span>
-                  High {task.risk_summary.high} / Medium {task.risk_summary.medium} / Low {task.risk_summary.low}
+                  高 {task.risk_summary.high} / 中 {task.risk_summary.medium} / 低 {task.risk_summary.low}
                 </span>
               </div>
             </div>
 
             <section className="subsection">
-              <h2>Analyst preview</h2>
-              {!task.analysts_preview.length ? <p className="muted">No analyst preview yet.</p> : null}
+              <h2>分析师预览</h2>
+              {!task.analysts_preview.length ? <p className="muted">暂无分析师预览。</p> : null}
               <div className="task-grid">
                 {task.analysts_preview.map((analyst) => (
                   <article className="panel nested-panel" key={`${analyst.name}-${analyst.role}`}>
-                    <h3>{analyst.name || "Unnamed analyst"}</h3>
+                    <h3>{analyst.name || "未命名分析师"}</h3>
                     <p>
-                      <strong>Role:</strong> {analyst.role || "N/A"}
+                      <strong>角色：</strong> {analyst.role || "暂无"}
                     </p>
                     <p>
-                      <strong>Affiliation:</strong> {analyst.affiliation || "N/A"}
+                      <strong>所属：</strong> {analyst.affiliation || "暂无"}
                     </p>
-                    <p>{analyst.description || "No description yet."}</p>
+                    <p>{analyst.description || "暂无描述。"}</p>
                   </article>
                 ))}
               </div>
             </section>
 
             <section className="subsection">
-              <h2>Feedback</h2>
+              <h2>反馈</h2>
               <form className="form-stack" onSubmit={handleFeedbackSubmit}>
                 <textarea
                   onChange={(event) => setFeedback(event.target.value)}
-                  placeholder="Leave feedback to regenerate analysts, or submit empty feedback to continue the workflow."
+                  placeholder="输入反馈可重新生成分析师；如果直接提交空反馈，则继续后续流程。"
                   rows={5}
                   value={feedback}
                 />
@@ -213,7 +242,7 @@ export function TaskDetailPage() {
                     disabled={submitting || task.status === "running_feedback"}
                     type="submit"
                   >
-                    {submitting ? "Submitting..." : "Submit feedback"}
+                    {submitting ? "提交中..." : "提交反馈"}
                   </button>
                   {task.status === "failed" ? (
                     <button
@@ -222,7 +251,7 @@ export function TaskDetailPage() {
                       onClick={handleRetry}
                       type="button"
                     >
-                      Retry task
+                      重试任务
                     </button>
                   ) : null}
                 </div>
@@ -230,8 +259,8 @@ export function TaskDetailPage() {
             </section>
 
             <section className="subsection">
-              <h2>Downloads</h2>
-              {!downloadLinks.length ? <p className="muted">Report files are not available yet.</p> : null}
+              <h2>下载</h2>
+              {!downloadLinks.length ? <p className="muted">报告文件暂未生成。</p> : null}
               <div className="button-row">
                 {downloadLinks.map((item) => (
                   <a
@@ -248,13 +277,13 @@ export function TaskDetailPage() {
             </section>
 
             <section className="subsection">
-              <h2>Events</h2>
-              {!events.length ? <p className="muted">No task events yet.</p> : null}
+              <h2>事件记录</h2>
+              {!events.length ? <p className="muted">暂无任务事件。</p> : null}
               <div className="event-list">
                 {events.map((event) => (
                   <article className="event-item" key={`${event.task_id}-${event.ts}-${event.event}`}>
                     <div className="event-row">
-                      <strong>{event.event}</strong>
+                      <strong>{getEventLabel(event.event)}</strong>
                       <span className="muted">
                         {new Date(event.ts * 1000).toLocaleString()}
                       </span>

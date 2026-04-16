@@ -198,7 +198,7 @@ class TaskRuntime:
                     continue
                 task["status"] = "failed"
                 task["failed_stage"] = status
-                task["error"] = "Task interrupted by server reload/restart. Please retry."
+                task["error"] = "任务因服务重载或重启而中断，请重试。"
                 task["updated_at"] = now
                 tasks[task_id] = task
                 updated_count += 1
@@ -212,7 +212,7 @@ class TaskRuntime:
                 self._emit_event(
                     task_id,
                     "task.interrupted",
-                    {"message": "Recovered after server reload/restart"},
+                    {"message": "服务重载或重启后已恢复该任务记录"},
                 )
         return updated_count
 

@@ -1,4 +1,4 @@
-# Multi-Agent Business Analysis
+# 多智能体商业分析系统
 
 一个基于 `LangGraph + FastAPI` 的多智能体商业分析与企业尽调系统。  
 项目现在采用前后端分离架构：后端使用 `FastAPI` 提供 JSON API，前端使用 `React + Vite` 提供浏览器界面。
@@ -6,7 +6,7 @@
 ## 项目亮点
 
 - 基于 `LangGraph` 构建的多智能体尽调工作流
-- 支持 Human-in-the-loop 的分析师审核与重生成
+- 支持人工参与闭环的分析师审核与重生成
 - 基于 JSON API 的前后端分离任务管理流程
 - 支持并行访谈与并行报告撰写
 - 支持导出 `DOCX` 与 `PDF` 双格式报告
@@ -26,17 +26,17 @@
 
 ## 当前状态
 
-- 已实现完整 API + SPA 流程：注册 / 登录 -> 提交公司信息 -> 生成分析师草案 -> 人工反馈 -> 多轮重生分析师 -> 继续检索与报告生成 -> 导出文件
+- 已实现完整 API + 单页应用流程：注册 / 登录 -> 提交公司信息 -> 生成分析师草案 -> 人工反馈 -> 多轮重生分析师 -> 继续检索与报告生成 -> 导出文件
 - 已实现异步任务运行时，支持任务状态、事件流、失败重试和依赖阻塞
 - 已支持多模型提供方切换：`openai`、`google`、`groq`
-- 报告结果包含风险词频统计（`high` / `medium` / `low`）以及 Final Recommendation 摘要
+- 报告结果包含风险统计（`高` / `中` / `低`）以及“最终建议”摘要
 
 ## 核心能力
 
 1. **多智能体协作**
    - 主图负责分析师生成、并行访谈与报告整合
    - 子图负责提问、检索、回答、访谈保存与章节撰写
-2. **Human in the loop**
+2. **人工参与闭环**
    - 在 `human_feedback` 节点暂停执行，支持“反馈 -> 重生分析师 -> 再次确认”的循环，直到人工满意后才进入访谈阶段
    - 前端显示分析师版本号（`v1`、`v2`、`v3` ...），用于区分每轮反馈后的方案
 3. **异步任务可观测**
@@ -46,7 +46,7 @@
    - 输出目录：`generated_report/<report_name>_<timestamp>/`
    - 输出格式：`.docx` 和 `.pdf`
 5. **指标兼容兜底**
-   - Token usage 会尽量从模型返回的 usage 元数据中读取
+   - Token 使用量会尽量从模型返回的 usage 元数据中读取
    - 如果提供方未返回 usage，前端显示 `N/A`，不会因此导致任务失败或重试
 
 ## 技术栈
@@ -150,7 +150,7 @@ npm run dev
 ## 使用流程
 
 1. 通过前端页面注册并登录
-2. 在 Dashboard 中填写：
+2. 在“创建尽职调查任务”页面中填写：
    - `company_name`（必填）
    - `focus`（可选）
    - `target_role`（可选）
@@ -169,11 +169,11 @@ npm run dev
 
 ## 工作流概览
 
-### Agent 架构
+### 智能体架构
 
 ```text
 +------------------+      +------------------+      +------------------+
-| React + Vite SPA |----->+ FastAPI JSON API +----->+    TaskRuntime   |
+| React + Vite 单页应用 |----->+ FastAPI JSON API +----->+    TaskRuntime   |
 +------------------+      +------------------+      +------------------+
                                                        |
                                                        v
@@ -251,21 +251,21 @@ npm run dev
 ### 任务状态流转
 
 ```text
-pending
+pending（待开始）
   |
   v
-running_generation
+running_generation（生成中）
   |
-  +--> failed  --(POST /tasks/{task_id}/retry)--> running_generation
+  +--> failed（失败） --(POST /api/tasks/{task_id}/retry)--> running_generation
   |
   v
-awaiting_feedback
+awaiting_feedback（待反馈）
   |
-  +--> (反馈非空) -> running_feedback -> awaiting_feedback
+  +--> (反馈非空) -> running_feedback（处理反馈中） -> awaiting_feedback
   |
-  +--> (反馈为空) -> running_feedback -> completed
+  +--> (反馈为空) -> running_feedback -> completed（已完成）
   |
-  +--> failed  --(POST /tasks/{task_id}/retry)--> running_feedback
+  +--> failed --(POST /api/tasks/{task_id}/retry)--> running_feedback
 ```
 
 ## API 概览
@@ -275,21 +275,24 @@ awaiting_feedback
 - `GET /`：登录页
 - `GET /signup`：注册页
 - `GET /dashboard`：创建尽调任务页
-- `GET /my_tasks`：任务列表页
-- `GET /report_progress/{task_id}`：任务进度页
+- `GET /tasks`：任务列表页
+- `GET /tasks/{task_id}`：任务详情页
 
 ### 任务与报告接口
 
-- `GET /health`：健康检查
-- `POST /generate_report`：创建并启动报告任务
-- `POST /submit_feedback`：提交反馈并继续工作流
-- `GET /tasks`：当前用户任务列表（JSON）
-- `GET /tasks/{task_id}`：任务详情（JSON）
-- `GET /tasks/{task_id}/events`：任务事件流（JSON）
-- `POST /tasks/{task_id}/claim`：设置任务负责人
-- `POST /tasks/{task_id}/dependencies`：设置任务依赖
-- `POST /tasks/{task_id}/retry`：重试失败任务
-- `GET /download/{file_name}?task_id=...`：下载任务输出文件
+- `POST /api/auth/signup`：注册用户
+- `POST /api/auth/login`：用户登录
+- `POST /api/auth/logout`：退出登录
+- `GET /api/auth/me`：获取当前登录用户
+- `POST /api/reports`：创建并启动报告任务
+- `GET /api/tasks`：当前用户任务列表（JSON）
+- `GET /api/tasks/{task_id}`：任务详情（JSON）
+- `GET /api/tasks/{task_id}/events`：任务事件流（JSON）
+- `POST /api/tasks/{task_id}/feedback`：提交反馈并继续工作流
+- `POST /api/tasks/{task_id}/claim`：设置任务负责人
+- `POST /api/tasks/{task_id}/dependencies`：设置任务依赖
+- `POST /api/tasks/{task_id}/retry`：重试失败任务
+- `GET /api/tasks/{task_id}/files/{file_name}`：下载任务输出文件
 
 ## 数据与产物
 
@@ -310,8 +313,8 @@ awaiting_feedback
 ## 适合的使用场景
 
 - 学习如何使用 `LangGraph` 构建多智能体工作流
-- 作为作品集项目展示商业分析 Agent Pipeline
-- 原型化验证 Human-in-the-loop 报告生成系统
+- 作为作品集项目展示商业分析智能体流水线
+- 原型化验证人工参与闭环的报告生成系统
 - 研究任务编排、重试机制与工作流可观测性
 
 ## 当前尚未重点优化的方向
@@ -324,7 +327,7 @@ awaiting_feedback
 ## 异常处理
 
 - `exception/custom_exception.py` 提供统一异常类型 `ResearchAnalystException`
-- 它会为底层异常附加文件名、行号、traceback 等上下文信息
+- 它会为底层异常附加文件名、行号、调用栈等上下文信息
 - 这让日志和接口错误更容易定位，也使各模块的异常格式更统一
 
 ## 常见问题
@@ -340,9 +343,9 @@ awaiting_feedback
 - `running_generation` 失败通常是模型配置或搜索配置问题
 - `running_feedback` 失败通常与线程状态或模型调用异常有关
 
-你可以通过 `POST /tasks/{task_id}/retry` 重试失败任务。
+你可以通过 `POST /api/tasks/{task_id}/retry` 重试失败任务。
 
-### 3. Token usage 显示 `N/A`
+### 3. Token 使用量显示 `N/A`
 
 这意味着当前模型提供方或调用路径没有返回 usage 元数据，但不会影响报告生成和下载。
 
@@ -357,10 +360,10 @@ awaiting_feedback
 - 优先在 `prompt_lib/` 中调整提示词，再考虑修改工作流逻辑
 - 如果要用于生产环境，建议替换当前本地文件与内存存储方案
 
-## Roadmap 想法
+## 后续规划
 
 - 为核心 API 路由和工作流状态流转补充自动化测试
 - 将本地运行时持久化替换为数据库驱动的任务存储
 - 继续完善认证、会话处理与部署能力
 - 增加示例截图或简短演示说明
-- 增加更多针对报告质量和 Agent 表现的评估钩子
+- 增加更多针对报告质量和智能体表现的评估钩子

@@ -15,25 +15,25 @@ def keep_latest(_, new):
 # -------------------------------
 
 class Analyst(BaseModel):
-    affiliation: str = Field(description="Primary affiliation of the analyst.")
-    name: str = Field(description="Name of the analyst.")
-    role: str = Field(description="Role of the analyst in the context of the research brief.")
+    affiliation: str = Field(description="分析师的主要所属机构或身份背景。")
+    name: str = Field(description="分析师姓名。")
+    role: str = Field(description="分析师在当前研究任务中的角色定位。")
     description: str = Field(
-        description="Description of the analyst's focus, concerns, and motives."
+        description="分析师的关注重点、核心顾虑与研究动机说明。"
     )
 
     @property
     def persona(self) -> str:
         return (
-            f"Name: {self.name}\n"
-            f"Role: {self.role}\n"
-            f"Affiliation: {self.affiliation}\n"
-            f"Description: {self.description}\n"
+            f"姓名：{self.name}\n"
+            f"角色：{self.role}\n"
+            f"所属：{self.affiliation}\n"
+            f"描述：{self.description}\n"
         )
 
 class Perspectives(BaseModel):
     analysts: List[Analyst] = Field(
-        description="Comprehensive list of analysts with their roles and affiliations."
+        description="包含分析师姓名、角色、所属和描述的完整分析师列表。"
     )
 
 # -------------------------------
@@ -41,7 +41,7 @@ class Perspectives(BaseModel):
 # -------------------------------
 
 class SearchQuery(BaseModel):
-    search_query: str = Field(None, description="Search query for retrieval.")
+    search_query: str = Field(None, description="用于检索或网页搜索的查询语句。")
 
 # -------------------------------
 # State Classes for Graphs

@@ -11,7 +11,7 @@ export function RequireAuth({ children }: RequireAuthProps) {
   const { loading, isAuthenticated } = useAuth();
 
   if (loading) {
-    return <section className="panel">Loading session...</section>;
+    return <section className="panel">正在加载会话...</section>;
   }
 
   if (!isAuthenticated) {

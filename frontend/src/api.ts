@@ -13,7 +13,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    let detail = `Request failed with status ${response.status}`;
+    let detail = `请求失败，状态码：${response.status}`;
     try {
       const body = (await response.json()) as { detail?: string };
       if (body.detail) {

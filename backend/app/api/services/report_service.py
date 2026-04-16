@@ -23,10 +23,25 @@ class ReportService:
     @staticmethod
     def _extract_risk_counts(final_report: str) -> dict[str, int]:
         text = final_report or ""
+        risk_section_match = re.search(
+            r"##\s*(?:风险评估|Risk Assessment)\s*(.*?)(?:\n##\s|\Z)",
+            text,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        scope = risk_section_match.group(1) if risk_section_match else text
+        high_count = len(re.findall(r"(?:风险等级|等级)\s*[:：]\s*高", scope))
+        medium_count = len(re.findall(r"(?:风险等级|等级)\s*[:：]\s*中", scope))
+        low_count = len(re.findall(r"(?:风险等级|等级)\s*[:：]\s*低", scope))
+        if high_count or medium_count or low_count:
+            return {
+                "high": high_count,
+                "medium": medium_count,
+                "low": low_count,
+            }
         return {
-            "high": len(re.findall(r"\bhigh\b", text, flags=re.IGNORECASE)),
-            "medium": len(re.findall(r"\bmedium\b", text, flags=re.IGNORECASE)),
-            "low": len(re.findall(r"\blow\b", text, flags=re.IGNORECASE)),
+            "high": len(re.findall(r"\bhigh\b", scope, flags=re.IGNORECASE)),
+            "medium": len(re.findall(r"\bmedium\b", scope, flags=re.IGNORECASE)),
+            "low": len(re.findall(r"\blow\b", scope, flags=re.IGNORECASE)),
         }
 
     @staticmethod
@@ -34,7 +49,7 @@ class ReportService:
         if not final_report:
             return ""
         match = re.search(
-            r"##\s*Final Recommendation\s*(.*?)(?:\n##\s|\Z)",
+            r"##\s*(?:最终建议|Final Recommendation)\s*(.*?)(?:\n##\s|\Z)",
             final_report,
             flags=re.IGNORECASE | re.DOTALL,
         )
@@ -134,7 +149,7 @@ class ReportService:
             analysts_preview = self._extract_analysts_preview(state.values)
             return {
                 "thread_id": thread_id,
-                "message": "Pipeline initiated successfully.",
+                "message": "报告流程已成功启动。",
                 "analysts_preview": analysts_preview,
             }
         except Exception as e:
@@ -156,7 +171,7 @@ class ReportService:
             analysts_preview = self._extract_analysts_preview(state.values)
             awaiting_feedback = "human_feedback" in pending_nodes
             return {
-                "message": "Feedback processed successfully",
+                "message": "反馈已处理完成",
                 "feedback_elapsed_ms": elapsed_ms,
                 "awaiting_feedback": awaiting_feedback,
                 "analysts_preview": analysts_preview,
@@ -204,4 +219,4 @@ class ReportService:
                     filename=file_name,
                     media_type="application/octet-stream"
                 )
-        return {"error": f"File {file_name} not found"}
+        return {"error": f"未找到文件：{file_name}"}

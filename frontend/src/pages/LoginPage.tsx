@@ -10,8 +10,8 @@ export function LoginPage() {
 
   return (
     <AuthForm
-      title="Login"
-      submitLabel="Login"
+      title="登录"
+      submitLabel="登录"
       onSubmit={async (payload) => {
         const user = await api.login(payload);
         setUser(user);
@@ -19,7 +19,7 @@ export function LoginPage() {
       }}
       footer={
         <p className="muted">
-          No account yet? <Link to="/signup">Create one</Link>
+          还没有账号？<Link to="/signup">立即注册</Link>
         </p>
       }
     />

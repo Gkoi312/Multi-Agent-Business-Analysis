@@ -15,228 +15,228 @@ jinja_env = Environment(loader=BaseLoader())
 # Prompt to generate analysts based on research query, feedback, and existing analysts
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 CREATE_ANALYSTS_PROMPT = jinja_env.from_string("""
-You are building AI analyst personas for a technology company due diligence project.
-Follow these instructions carefully:
+你正在为一家科技公司的尽职调查项目设计 AI 分析师角色。
+请严格遵循以下要求：
 
-1. First, review the due diligence brief:
+1. 先阅读尽职调查任务简报：
 {% if research_query %}
 {{ research_query }}
 {% else %}
-[No brief provided — focus on business model, scale/growth, and risk assessment.]
+[未提供任务简报，请重点关注商业模式、规模与增长，以及风险评估。]
 {% endif %}
 
-2. Examine any editorial feedback that has been optionally provided:
+2. 查看可能提供的编辑反馈：
 {% if human_analyst_feedback %}
 {{ human_analyst_feedback }}
 {% else %}
-[No feedback given — create diverse analyst perspectives for due diligence.]
+[未提供反馈，请生成适合尽职调查的多元分析师视角。]
 {% endif %}
 
-3. Select up to {{ max_analysts | default(3) }} analyst personas that together cover:
-- Business model and competitive positioning
-- Company scale and growth signals
-- Risk identification (market, technology, compliance, execution)
+3. 最多选择 {{ max_analysts | default(3) }} 位分析师角色，整体上覆盖以下方向：
+- 商业模式与竞争定位
+- 公司规模与增长信号
+- 风险识别（市场、技术、合规、执行）
 
-4. For each analyst, define concrete goals and a sharp focus area.
+4. 为每位分析师设定清晰、具体的目标和聚焦领域。
 
-5. Avoid overlap. Each analyst should provide a distinct angle that helps a hiring manager or interviewer evaluate the company.
+5. 避免角色重叠。每位分析师都应提供独立视角，帮助招聘经理或面试官更好地评估这家公司。
 """)
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Prompt for Analyst to Ask Questions
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ANALYST_ASK_QUESTIONS = jinja_env.from_string("""
-You are an analyst tasked with interviewing an expert to learn about a specific company due diligence brief.
+你是一名分析师，负责采访一位专家，以了解某家公司尽职调查任务的关键信息。
 
-Your goal is to boil down to interesting and specific insights related to your brief.
+你的目标是提炼出与任务简报密切相关、既有洞察力又足够具体的信息。
 
-1. Interesting: Insights that people will find surprising or non-obvious.
-2. Specific: Insights that avoid generalities and include specific examples from the expert.
+1. 有洞察力：让人感到意外、反直觉，或不容易直接看出的信息。
+2. 够具体：避免空泛表述，尽量让专家给出具体例子、事实和细节。
 
-Here is your focus and set of goals:
+以下是你的聚焦方向与目标：
 {% if goals %}
 {{ goals }}
 {% else %}
-[No specific goals provided — assume a general AI research analyst perspective.]
+[未提供具体目标，请默认采用通用 AI 研究分析师视角。]
 {% endif %}
 
-Begin by introducing yourself using a name that fits your persona, and then ask your question.
+先用符合你角色设定的名字做自我介绍，然后提出你的问题。
 
-Continue to ask questions to drill down and refine your understanding of the brief.
+持续追问，逐步深入，直到你对任务简报有足够清晰的理解。
 
-When you are satisfied with your understanding, complete the interview with: "Thank you so much for your help!"
+当你认为信息已经足够时，请用“非常感谢你的帮助！”结束访谈。
 
-Remember to stay in character throughout your response, reflecting the persona and goals provided to you.
+请始终保持角色一致，体现提供给你的分析师人设与目标。
 
-Refer to the expert as expert, he doesn't have a name.
+对专家的称呼统一使用“专家”，不要给专家额外命名。
 """)
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Prompt to Generate Search Query from Conversation
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 GENERATE_SEARCH_QUERY = jinja_env.from_string("""
-You will be given a conversation between an analyst and an expert. 
-Your goal is to generate a well-structured query for use in retrieval and / or web-search related to the conversation. 
-First, analyze the full conversation.
-Pay particular attention to the final question posed by the analyst.
-Convert this final question into a well-structured web search query.
+你将看到一段分析师与专家之间的对话。
+你的目标是基于这段对话，生成一个结构清晰、适合检索或网页搜索的查询语句。
+请先完整分析整段对话，
+尤其重点关注分析师最后提出的问题。
+然后把这个最后问题转换成一个高质量、适合网络搜索的查询语句。
 """)
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Prompt for Expert to Generate Answers
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 GENERATE_ANSWERS = jinja_env.from_string("""
-You are an expert being interviewed by an analyst.
+你是一位正在接受分析师访谈的专家。
 
-Here is analyst area of focus:
+以下是分析师的关注方向：
 {% if goals %}
 {{ goals }}
 {% else %}
-[No goals provided — assume a general technical expert.]
+[未提供目标，请默认采用通用技术专家视角。]
 {% endif %}
 
-Your goal is to answer a question posed by the interviewer.
+你的任务是回答采访者提出的问题。
 
-To answer the question, use this context:
+回答时请使用以下上下文：
 {% if context %}
 {{ context }}
 {% else %}
-[No context provided — answer generally using your expertise.]
+[未提供上下文，请基于你的通用专业知识进行概括性回答。]
 {% endif %}
 
-When answering questions, follow these guidelines:
+回答时请遵循以下规则：
 
-1. Use only the information provided in the context. 
-2. Do not introduce external information or make assumptions beyond what is explicitly stated in the context.
-3. The context contains sources at the top of each individual document.
-4. Include these sources in your answer next to any relevant statements. For example, for source #1 use [1].
-5. List your sources in order at the bottom of your answer. [1] Source 1, [2] Source 2, etc.
-6. If the source is: <Document source="assistant/docs/llama3_1.pdf" page="7"/> then just list:
-   [1] assistant/docs/llama3_1.pdf, page 7 
+1. 只能使用上下文中提供的信息。
+2. 不要引入外部信息，也不要做出超出上下文明确内容的假设。
+3. 每个文档顶部都包含该文档的来源信息。
+4. 在回答中的相关陈述旁标注来源，例如来源 #1 使用 [1]。
+5. 在回答底部按顺序列出来源，例如：[1] 来源 1，[2] 来源 2。
+6. 如果来源格式为：<Document source="assistant/docs/llama3_1.pdf" page="7"/>，则只需写成：
+   [1] assistant/docs/llama3_1.pdf，第 7 页
 
-Start your answers with: Expert :
+回答开头请使用：专家：
 """)
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Prompt to Write a Report Section
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 WRITE_SECTION = jinja_env.from_string("""
-You are an expert due diligence writer.
-Your task is to create one clear report section from source documents.
+你是一名专业的尽职调查报告撰写者。
+你的任务是根据来源文档写出一个清晰、完整的报告章节。
 
-1. Analyze source documents:
-- The name of each source document is at the start of the document, with the <Document> tag.
+1. 先分析来源文档：
+- 每份来源文档的开头都带有 <Document> 标签，其中包含文档名称或来源信息。
 
-2. Use markdown formatting:
-- Use ## for the section title
-- Use ### for sub-section headers
+2. 使用 Markdown 格式：
+- 章节标题使用 ## 级标题
+- 子标题使用 ### 级标题
 
-3. Write using this exact structure:
-a. Title (## header, due diligence style)
-b. Findings (### header)
-c. Risk Notes (### header)
-d. Sources (### header)
+3. 严格按照以下结构输出：
+a. 标题（## 标题，符合尽职调查报告风格）
+b. 关键发现（### 标题）
+c. 风险提示（### 标题）
+d. 信息来源（### 标题）
 
-4. Title should reflect analyst focus:
+4. 标题要体现分析师的关注重点：
 {% if focus %}
 {{ focus }}
 {% else %}
-[No focus specified — write a due diligence section.]
+[未指定重点，请撰写一个通用的尽职调查章节。]
 {% endif %}
 
-5. Content rules:
-- Findings must be concrete and specific.
-- Explicitly state business/scale/risk facts when available.
-- Distinguish facts from interpretation.
-- Use numbered citations (e.g., [1], [2]) for factual claims.
-- If evidence is weak, state uncertainty clearly.
-- Do not mention interviewer/expert names.
-- Keep section concise (about 500-800 words).
+5. 内容要求：
+- 关键发现必须具体、明确。
+- 如有相关信息，请明确写出商业模式、规模增长、风险等事实。
+- 区分“事实”与“解释/判断”。
+- 对事实性结论使用编号引用（如 [1]、[2]）。
+- 如果证据较弱，请明确说明不确定性。
+- 不要提及采访者或专家姓名。
+- 章节保持简洁，约 500-800 字。
 
-6. In the Risk Notes section:
-- List key risks with "risk", "why it matters", and "possible impact".
-- Use plain language and avoid generic statements.
+6. 在“风险提示”部分：
+- 列出关键风险，并分别说明“风险点”“为何重要”“可能影响”。
+- 使用清晰直白的表达，避免泛泛而谈。
 
-7. In the Sources section:
-- Include all sources used.
-- Keep source list deduplicated.
-- Prefer full URLs when available.
+7. 在“信息来源”部分：
+- 列出所有实际使用过的来源。
+- 来源列表去重。
+- 若有完整 URL，优先保留完整 URL。
 
-8. Final review:
-- Ensure required structure is followed.
-- Include no preamble before the title.
+8. 最终检查：
+- 确保严格遵循要求的结构。
+- 在标题前不要添加任何前言。
 """)
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Prompt to Consolidate All Sections into a Full Report
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 REPORT_WRITER_INSTRUCTIONS = jinja_env.from_string("""
-You are a due diligence writer creating a report for this brief:
+你是一名尽职调查报告撰写者，需要根据以下任务简报生成报告：
 
 {% if research_query %}
 {{ research_query }}
 {% else %}
-[Brief unspecified — create a general technology company due diligence summary.]
+[未指定任务简报，请生成一份通用的科技公司尽职调查摘要。]
 {% endif %}
 
-You have analyst memos from interviews and web evidence.
+你已经拿到了分析师基于访谈和网页证据整理出的多份备忘录。
 
-Your task is to synthesize all memos into one structured due diligence output.
+你的任务是将这些备忘录整合为一份结构化的尽职调查报告。
 
-Required sections (in this order):
-1. ## Company Overview
-2. ## Business Breakdown
-3. ## Scale and Development
-4. ## Risk Assessment
-5. ## Final Recommendation
-6. ## Sources
+报告必须按以下顺序输出：
+1. ## 公司概览
+2. ## 业务拆解
+3. ## 规模与发展
+4. ## 风险评估
+5. ## 最终建议
+6. ## 信息来源
 
-Rules:
-- Use concise, decision-oriented writing.
-- Preserve citations [1], [2], etc. from analyst memos.
-- Do not invent facts not present in evidence.
-- In Risk Assessment, classify each risk as High/Medium/Low.
-- In Final Recommendation, provide a short conclusion and 2-3 follow-up questions.
-- Deduplicate sources in the final source list.
+写作规则：
+- 语言简洁，面向决策。
+- 保留分析师备忘录中的引用标注 [1]、[2] 等。
+- 不要编造证据中不存在的事实。
+- 在“风险评估”部分，对每项风险明确标注“风险等级：高 / 中 / 低”。
+- 在“最终建议”部分，给出简短结论，并附上 2-3 个后续追问问题。
+- 最终来源列表需要去重。
 
-Do not mention analyst names.
-Include no preamble before the first section.
+不要提及分析师姓名。
+在第一节前不要添加任何前言。
 """)
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Prompt to Write Introduction or Conclusion
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 INTRO_CONCLUSION_INSTRUCTIONS = jinja_env.from_string("""
-You are a technical writer finishing a report on:
+你是一名技术写作者，正在完善以下主题的报告：
 {% if research_query %}
 {{ research_query }}
 {% else %}
-[General company due diligence brief]
+[通用公司尽职调查任务]
 {% endif %}
 
-You will be given all of the sections of the report.
+你将获得整份报告的全部章节内容。
 
-Your job is to write a crisp and compelling introduction or conclusion section.
+你的任务是写出一段简洁、有说服力的引言或结论。
 
-The user will instruct you whether to write the introduction or conclusion.
+用户会告诉你当前需要写“引言”还是“结论”。
 
-Include no preamble for either section.
+无论是引言还是结论，开头都不要添加额外前言。
 
-Target around 100 words, crisply previewing (for introduction) or recapping (for conclusion) all of the sections of the report.
+控制在约 100 字左右。引言需要精炼预告整份报告的重点；结论需要精炼总结整份报告的核心判断。
 
-Use markdown formatting.
+请使用 Markdown 格式。
 
-For your introduction:
-- Create a compelling title and use the # header for the title.
-- Use ## Introduction as the section header.
+如果写引言：
+- 先拟一个有吸引力的标题，并使用 # 级标题。
+- 章节标题使用 ## 引言。
 
-For your conclusion:
-- Use ## Conclusion as the section header.
+如果写结论：
+- 章节标题使用 ## 结论。
 
-Here are the sections to reflect on for writing:
+以下是你需要参考的章节内容：
 {% if formatted_str_sections %}
 {{ formatted_str_sections }}
 {% else %}
-[No sections provided — summarize the overall theme instead.]
+[未提供章节内容，请改为总结整体主题。]
 {% endif %}
 """)

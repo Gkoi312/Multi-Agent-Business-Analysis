@@ -83,7 +83,7 @@ def _get_current_user(request: Request) -> str | None:
 def _require_current_user(request: Request) -> str:
     username = _get_current_user(request)
     if not username:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未登录或会话已失效")
     return username
 
 
@@ -94,17 +94,17 @@ def _task_owned_by(task: dict, username: str) -> bool:
 def _require_owned_task(task_id: str, username: str) -> dict:
     task = TASK_RUNTIME.get_task(task_id)
     if not task:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在")
     if not _task_owned_by(task, username):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该任务")
     return task
 
 
 def _build_research_query(company_name: str, focus: str, target_role: str) -> str:
-    return f"""Perform due diligence research on the company: {company_name}
-Focus areas: {focus or "business model, company scale and development trajectory, and risk factors"}
-Target role context: {target_role or "not specified"}
-Return a structured analysis with clear, evidence-based sections on business, scale/growth, and risks."""
+    return f"""请对这家公司进行尽职调查研究：{company_name}
+重点关注：{focus or "商业模式、公司规模与发展轨迹，以及核心风险因素"}
+目标岗位语境：{target_role or "未指定"}
+请输出一份结构化分析，围绕业务、规模/增长和风险给出清晰且基于证据的结论。"""
 
 
 def _task_response(task: dict) -> TaskResponse:
@@ -193,7 +193,7 @@ async def signup(payload: SignupRequest):
     db = next(get_db())
     existing_user = db.query(User).filter(User.username == payload.username).first()
     if existing_user:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="用户名已存在")
 
     hashed_pw = hash_password(payload.password)
     new_user = User(username=payload.username, password=hashed_pw)
@@ -217,7 +217,7 @@ async def login(payload: LoginRequest):
     if not user or not verify_password(payload.password, user.password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password",
+            detail="用户名或密码错误",
         )
 
     session_id = SESSION_STORE.create(user.username)
@@ -230,7 +230,7 @@ async def login(payload: LoginRequest):
 async def logout(request: Request):
     session_id = request.cookies.get(SESSION_COOKIE_NAME)
     SESSION_STORE.delete(session_id)
-    response = JSONResponse(content=MessageResponse(message="Logged out").model_dump())
+    response = JSONResponse(content=MessageResponse(message="已退出登录").model_dump())
     _clear_session_cookie(response)
     return response
 
@@ -300,7 +300,7 @@ async def submit_feedback(request: Request, task_id: str, payload: FeedbackReque
     if not thread_id:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Generation is still running. Please wait and retry.",
+            detail="报告仍在生成中，请稍后再试。",
         )
 
     normalized_feedback = (payload.feedback or "").strip()
@@ -348,12 +348,12 @@ async def retry_task(request: Request, task_id: str):
     if task.get("status") != "failed":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Only failed tasks can be retried",
+            detail="只有失败任务才可以重试",
         )
     if not TASK_RUNTIME.is_unblocked(task):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Task is blocked by dependencies",
+            detail="任务被依赖项阻塞，暂时无法重试",
         )
 
     failed_stage = task.get("failed_stage", "")
@@ -366,7 +366,7 @@ async def retry_task(request: Request, task_id: str):
         TASK_RUNTIME.update_task(task_id, status="running_generation", error="")
         _start_generation_job(task_id, research_query, 3)
         return RetryResponse(
-            message="Retry started for generation stage",
+            message="已开始重试生成阶段",
             task_id=task_id,
         )
     if failed_stage == "running_feedback":
@@ -375,17 +375,17 @@ async def retry_task(request: Request, task_id: str):
         if not thread_id:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Cannot retry feedback stage without thread_id",
+                detail="缺少 thread_id，无法重试反馈阶段",
             )
         TASK_RUNTIME.update_task(task_id, status="running_feedback", error="")
         _start_feedback_job(task_id, thread_id, feedback)
         return RetryResponse(
-            message="Retry started for feedback stage",
+            message="已开始重试反馈阶段",
             task_id=task_id,
         )
     raise HTTPException(
         status_code=status.HTTP_409_CONFLICT,
-        detail="No retryable failed stage found",
+        detail="未找到可重试的失败阶段",
     )
 
 
@@ -395,12 +395,12 @@ def _download_report_for_task(task: dict, file_name: str):
         task.get("pdf_path", "").split("\\")[-1].split("/")[-1],
     }
     if file_name not in allowed_file_names:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="File not allowed for this task")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="该文件不属于当前任务")
 
     service = ReportService()
     file_response = service.download_file(file_name)
     if not hasattr(file_response, "path"):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"File {file_name} not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"未找到文件：{file_name}")
     return file_response
 
 
