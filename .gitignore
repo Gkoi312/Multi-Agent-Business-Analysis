@@ -28,6 +28,7 @@ archive/
 *.log
 docs/
 
+.cursor/
 generated_report/
 frontend/node_modules/
 frontend/dist/

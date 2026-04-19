@@ -1,0 +1,81 @@
+role_skills:
+  - id: ai-market-product
+    name: AI product & market analysis
+    objective: Assess AI product positioning, customer value, and monetization path.
+    focus_areas: [positioning, customer tiers, business model]
+    question_lenses: [Does the product solve a must-have problem?, Is the monetization path clear?]
+    evidence_requirements: [public product materials, customer/market signals]
+    review_checklist: [positioning stated, monetization evidence given]
+  - id: ai-technology-moat
+    name: AI technology & moat analysis
+    objective: Assess model capabilities, engineering, and sustainable technical advantage.
+    focus_areas: [model capability, engineering efficiency, technical moat]
+    question_lenses: [Is the core tech advantage sustainable?, How does it differ from peers?]
+    evidence_requirements: [technical disclosures, performance or deployment cases]
+    review_checklist: [core tech identified, tech risks noted]
+  - id: ai-risk-compliance
+    name: AI risk & compliance analysis
+    objective: Identify compliance, security, and business continuity risks for AI companies.
+    focus_areas: [compliance, data & security, business continuity]
+    question_lenses: [Do constraints limit growth?, Are risk events traceable?]
+    evidence_requirements: [regulatory or risk signals, public risk events]
+    review_checklist: [risk levels given, evidence traceable]
+research_skills:
+  - id: rq-ai-market
+    name: AI market & business question generation
+    question_templates:
+      - Who are the target customers, and is there a stable paid use case?
+      - Is the business model scalable?
+    evidence_requirements: [customer/revenue evidence, competitor comparison]
+    source_policy_id: policy-ai-market
+  - id: rq-ai-tech
+    name: AI technology & capability question generation
+    question_templates:
+      - Where does the core model or tech capability win in specific scenarios?
+      - Does the capability depend on unsustainable resources?
+    evidence_requirements: [technical disclosures, deployment outcomes]
+    source_policy_id: policy-ai-tech
+  - id: rq-ai-risk
+    name: AI risk & compliance question generation
+    question_templates:
+      - What are the key regulatory and compliance risks?
+      - How would these risks affect growth and hiring decisions?
+    evidence_requirements: [regulatory docs or news, risk case studies]
+    source_policy_id: policy-ai-risk
+source_policies:
+  - id: policy-ai-market
+    label: AI commercial analysis policy
+    preferred_source_types: [company, news, web]
+    site_hints: [openai.com, anthropic.com, deepmind.google]
+    freshness_hint: balanced
+    guidance: [Prefer official company info and mainstream analysis.]
+  - id: policy-ai-tech
+    label: AI technical analysis policy
+    preferred_source_types: [web, news]
+    site_hints: [arxiv.org, huggingface.co, github.com]
+    freshness_hint: recent
+    guidance: [Prefer technical docs and credible technical communities.]
+  - id: policy-ai-risk
+    label: AI risk analysis policy
+    preferred_source_types: [news, web]
+    site_hints: [ft.com, wsj.com, reuters.com]
+    freshness_hint: recent
+    guidance: [Prefer regulatory, litigation, and negative-coverage sources.]
+mappings:
+  - role_skill_id: ai-market-product
+    research_skill_id: rq-ai-market
+  - role_skill_id: ai-technology-moat
+    research_skill_id: rq-ai-tech
+  - role_skill_id: ai-risk-compliance
+    research_skill_id: rq-ai-risk
+domain_memory:
+  - memory_id: ai-dd-framework
+    category: procedure_memory
+    title: AI due diligence four-pillar framework
+    content: Cover product/commercialization, technical moat, scale/growth, and risk/compliance.
+    tags: [ai, due_diligence]
+  - memory_id: ai-risk-rubric
+    category: reference_memory
+    title: AI risk severity reference
+    content: Rate High/Medium/Low using regulatory pressure, commercial dependency, and substitutability.
+    tags: [ai, risk]

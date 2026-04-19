@@ -18,4 +18,5 @@ sqlalchemy==2.0.43
 bcrypt==3.2.2
 passlib==1.7.4
 python-multipart
+PyYAML>=6.0.2
 -e .

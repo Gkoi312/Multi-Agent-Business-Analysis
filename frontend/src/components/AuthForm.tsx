@@ -20,7 +20,7 @@ export function AuthForm({ title, submitLabel, onSubmit, footer }: AuthFormProps
     try {
       await onSubmit({ username, password });
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "请求失败");
+      setError(nextError instanceof Error ? nextError.message : "Request failed");
     } finally {
       setSubmitting(false);
     }
@@ -31,7 +31,7 @@ export function AuthForm({ title, submitLabel, onSubmit, footer }: AuthFormProps
       <h1>{title}</h1>
       <form className="form-stack" onSubmit={handleSubmit}>
         <label>
-          用户名
+          Username
           <input
             autoComplete="username"
             onChange={(event) => setUsername(event.target.value)}
@@ -40,7 +40,7 @@ export function AuthForm({ title, submitLabel, onSubmit, footer }: AuthFormProps
           />
         </label>
         <label>
-          密码
+          Password
           <input
             autoComplete="current-password"
             onChange={(event) => setPassword(event.target.value)}
@@ -51,7 +51,7 @@ export function AuthForm({ title, submitLabel, onSubmit, footer }: AuthFormProps
         </label>
         {error ? <p className="error-text">{error}</p> : null}
         <button className="primary-button" disabled={submitting} type="submit">
-          {submitting ? "提交中..." : submitLabel}
+          {submitting ? "Submitting…" : submitLabel}
         </button>
       </form>
       <div className="auth-footer">{footer}</div>

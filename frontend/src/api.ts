@@ -13,7 +13,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    let detail = `请求失败，状态码：${response.status}`;
+    let detail = `Request failed with status ${response.status}`;
     try {
       const body = (await response.json()) as { detail?: string };
       if (body.detail) {
@@ -32,8 +32,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+function sessionCheckSignal(): AbortSignal | undefined {
+  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+    return AbortSignal.timeout(25_000);
+  }
+  return undefined;
+}
+
 export const api = {
-  getCurrentUser: () => request<User>("/auth/me"),
+  getCurrentUser: () => request<User>("/auth/me", { signal: sessionCheckSignal() }),
   login: (payload: { username: string; password: string }) =>
     request<User>("/auth/login", {
       method: "POST",
@@ -49,11 +56,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify({}),
     }),
+  listSkillPacks: () => request<{ items: string[] }>("/skill-packs"),
   createReport: (payload: {
     company_name: string;
     focus: string;
     target_role: string;
     max_analysts: number;
+    industry_pack: string;
   }) =>
     request<{ task: Task }>("/reports", {
       method: "POST",

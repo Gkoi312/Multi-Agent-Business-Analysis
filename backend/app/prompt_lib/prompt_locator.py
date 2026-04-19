@@ -1,242 +1,278 @@
 # ==============================================================================
-# 📘 Jinja2-based Prompt Templates for Autonomous Research Generator
+# Jinja2 prompt templates for the autonomous research / due diligence pipeline
 # ==============================================================================
-# Author: Sunny Savita
-# Description: These prompt templates use Jinja2 syntax ({{ ... }}, {% if ... %})
-# to dynamically render variables and handle missing values gracefully.
+# Layering (aligned with the main graph):
+#   Parallel subgraph (per analyst): WRITE_SECTION → memo chapter with local [1]…
+#   Main graph merge: REPORT_WRITER → single main body with global [1]…[n] and ## Sources
+#   Parallel to merge: INTRO_CONCLUSION → # title + ## Introduction or ## Conclusion
+#   finalize_report order: introduction → main body → conclusion → ## Sources (last)
 # ==============================================================================
 
 from jinja2 import Environment, BaseLoader
 
-# Create reusable Jinja environment
 jinja_env = Environment(loader=BaseLoader())
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Prompt to generate analysts based on research query, feedback, and existing analysts
+# Prompt to generate analysts from research query, feedback, and skill catalog
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 CREATE_ANALYSTS_PROMPT = jinja_env.from_string("""
-你正在为一家科技公司的尽职调查项目设计 AI 分析师角色。
-请严格遵循以下要求：
+You are designing AI analyst personas for a due diligence project.
 
-1. 先阅读尽职调查任务简报：
+Follow these rules strictly:
+
+1. Read the due diligence brief:
 {% if research_query %}
 {{ research_query }}
 {% else %}
-[未提供任务简报，请重点关注商业模式、规模与增长，以及风险评估。]
+[No brief provided—prioritize business model, scale and growth, and risk assessment.]
 {% endif %}
 
-2. 查看可能提供的编辑反馈：
+2. Read any editor feedback:
 {% if human_analyst_feedback %}
 {{ human_analyst_feedback }}
 {% else %}
-[未提供反馈，请生成适合尽职调查的多元分析师视角。]
+[No feedback—produce a diverse set of analyst angles suitable for due diligence.]
 {% endif %}
 
-3. 最多选择 {{ max_analysts | default(3) }} 位分析师角色，整体上覆盖以下方向：
-- 商业模式与竞争定位
-- 公司规模与增长信号
-- 风险识别（市场、技术、合规、执行）
+3. Select at most {{ max_analysts }} analyst roles that collectively cover:
+- Business model and competitive positioning
+- Company scale and growth signals
+- Risk (market, technology, compliance, execution)
 
-4. 为每位分析师设定清晰、具体的目标和聚焦领域。
+{% if skill_catalog %}
+4. Skill cards and headcount (mandatory):
+- There are {{ skill_count }} skill cards (list below). Each has a unique `skill_id` (in parentheses after the name).
+- If **number of analysts ≤ number of skill cards**: bind a distinct card per analyst where possible and set `skill_id` in structured output to match the ID in parentheses exactly.
+- If **number of analysts > number of skill cards**: at most {{ skill_count }} analysts may have a non-empty `skill_id`, and **do not assign the same skill_id to two people**. All other analysts **must** use an empty string `""` for `skill_id` and describe a complementary angle in prose; **do not** invent or guess skill_ids for “extra” analysts.
+- Analysts without a skill card still participate; they do not use pack-specific retrieval templates—do not drop their perspective.
 
-5. 避免角色重叠。每位分析师都应提供独立视角，帮助招聘经理或面试官更好地评估这家公司。
+Skill cards:
+{{ skill_catalog }}
+{% else %}
+4. If no skill cards are provided, generate general due diligence roles; set each analyst's `skill_id` to an empty string.
+{% endif %}
+
+5. Avoid overlapping roles. Each analyst should have a distinct angle with clear goals and focus areas to help evaluators assess the company.
 """)
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Prompt for Analyst to Ask Questions
+# Prompt for analyst interview (questions to expert)
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ANALYST_ASK_QUESTIONS = jinja_env.from_string("""
-你是一名分析师，负责采访一位专家，以了解某家公司尽职调查任务的关键信息。
+You are an analyst interviewing an expert to gather key information for a company due diligence task.
 
-你的目标是提炼出与任务简报密切相关、既有洞察力又足够具体的信息。
+Your goal is information that is both insightful and concrete relative to the brief.
 
-1. 有洞察力：让人感到意外、反直觉，或不容易直接看出的信息。
-2. 够具体：避免空泛表述，尽量让专家给出具体例子、事实和细节。
+1. Insightful: surprising, non-obvious, or not easily found in public materials.
+2. Concrete: avoid vague claims; ask for examples, facts, and specifics.
 
-以下是你的聚焦方向与目标：
+Your focus and goals:
 {% if goals %}
 {{ goals }}
 {% else %}
-[未提供具体目标，请默认采用通用 AI 研究分析师视角。]
+[No specific goals—default to a general AI research analyst stance.]
 {% endif %}
 
-先用符合你角色设定的名字做自我介绍，然后提出你的问题。
+{% if skill_card %}
+Your bound skill card:
+{{ skill_card }}
+{% endif %}
 
-持续追问，逐步深入，直到你对任务简报有足够清晰的理解。
+{% if assigned_plan %}
+Research plan assignment for this round:
+{{ assigned_plan }}
+{% endif %}
 
-当你认为信息已经足够时，请用“非常感谢你的帮助！”结束访谈。
+{% if domain_memory %}
+Domain memory you may use:
+{{ domain_memory }}
+{% endif %}
 
-请始终保持角色一致，体现提供给你的分析师人设与目标。
+Introduce yourself with a name that fits your persona, then ask your question.
 
-对专家的称呼统一使用“专家”，不要给专家额外命名。
+Dig deeper step by step until you have a clear picture of the brief.
+
+When you have enough, end with: "Thank you so much for your help!"
+
+Stay in character and reflect the analyst persona and goals you were given.
+
+Address the interviewee only as "Expert"—do not invent another name for them.
 """)
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Prompt to Generate Search Query from Conversation
+# Prompt to derive a web search query from the conversation
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 GENERATE_SEARCH_QUERY = jinja_env.from_string("""
-你将看到一段分析师与专家之间的对话。
-你的目标是基于这段对话，生成一个结构清晰、适合检索或网页搜索的查询语句。
-请先完整分析整段对话，
-尤其重点关注分析师最后提出的问题。
-然后把这个最后问题转换成一个高质量、适合网络搜索的查询语句。
+You will see a dialogue between an analyst and an expert.
+Your goal is to produce a clear, search-friendly query for retrieval or web search.
+
+{% if assigned_plan %}
+Research plan summary:
+{{ assigned_plan }}
+{% endif %}
+
+{% if source_policy %}
+Prefer the following source policy:
+{{ source_policy }}
+{% endif %}
 """)
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Prompt for Expert to Generate Answers
+# Prompt for expert answers (grounded in retrieved context)
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 GENERATE_ANSWERS = jinja_env.from_string("""
-你是一位正在接受分析师访谈的专家。
+You are an expert being interviewed by an analyst.
 
-以下是分析师的关注方向：
+The analyst's focus:
 {% if goals %}
 {{ goals }}
 {% else %}
-[未提供目标，请默认采用通用技术专家视角。]
+[No goals provided—default to a general technical expert stance.]
 {% endif %}
 
-你的任务是回答采访者提出的问题。
+{% if skill_card %}
+Analyst's skill card:
+{{ skill_card }}
+{% endif %}
 
-回答时请使用以下上下文：
+{% if domain_memory %}
+Domain memory:
+{{ domain_memory }}
+{% endif %}
+
+Answer the interviewer's questions.
+
+Use only this context:
 {% if context %}
 {{ context }}
 {% else %}
-[未提供上下文，请基于你的通用专业知识进行概括性回答。]
+[No context—answer at a high level from general professional knowledge.]
 {% endif %}
 
-回答时请遵循以下规则：
+Rules:
+1. Use only information present in the context.
+2. Do not add external facts or assumptions beyond what the context supports.
+3. Each document includes source metadata at the top.
+4. Cite sources inline with [1], [2], … next to supported statements.
+5. At the end, list sources in order, e.g. [1] …, [2] …
+6. If a source looks like <Document source="assistant/docs/llama3_1.pdf" page="7"/>, write:
+   [1] assistant/docs/llama3_1.pdf, page 7
 
-1. 只能使用上下文中提供的信息。
-2. 不要引入外部信息，也不要做出超出上下文明确内容的假设。
-3. 每个文档顶部都包含该文档的来源信息。
-4. 在回答中的相关陈述旁标注来源，例如来源 #1 使用 [1]。
-5. 在回答底部按顺序列出来源，例如：[1] 来源 1，[2] 来源 2。
-6. 如果来源格式为：<Document source="assistant/docs/llama3_1.pdf" page="7"/>，则只需写成：
-   [1] assistant/docs/llama3_1.pdf，第 7 页
-
-回答开头请使用：专家：
+Start your reply with: Expert:
 """)
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Prompt to Write a Report Section
+# Prompt to write one parallel memo section
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 WRITE_SECTION = jinja_env.from_string("""
-你是一名专业的尽职调查报告撰写者。
-你的任务是根据来源文档写出一个清晰、完整的报告章节。
+[Role]You run inside the parallel interview subgraph: output **one memo chapter** to be **merged** in the main graph. This is not the full external report—only one evidence chain.
 
-1. 先分析来源文档：
-- 每份来源文档的开头都带有 <Document> 标签，其中包含文档名称或来源信息。
+[Input]<Document> snippets from retrieval and dialogue context.
 
-2. 使用 Markdown 格式：
-- 章节标题使用 ## 级标题
-- 子标题使用 ### 级标题
+[Output structure]Output **one chapter** only, exactly four Markdown levels:
+1. ## Section title — reflects **this analyst's lens** (e.g. "Product & monetization", "Technical moat"). Do **not** use full-report titles like "Company Overview" or "Business Breakdown".
+2. ### Key Findings — verifiable facts and judgments; inline citations **[1][2]…** (section-local numbering from [1], matching "### Sources" below).
+3. ### Risk Notes — risk / why it matters / possible impact; you may tag severity (High / Medium / Low).
+4. ### Sources — only sources actually cited in this section, listed in [1][2]… order.
 
-3. 严格按照以下结构输出：
-a. 标题（## 标题，符合尽职调查报告风格）
-b. 关键发现（### 标题）
-c. 风险提示（### 标题）
-d. 信息来源（### 标题）
+[Length]About 500–800 words; do not name the interviewer.
 
-4. 标题要体现分析师的关注重点：
+Focus and persona (this analyst):
 {% if focus %}
 {{ focus }}
 {% else %}
-[未指定重点，请撰写一个通用的尽职调查章节。]
+[No focus specified—write a general due diligence memo section.]
 {% endif %}
 
-5. 内容要求：
-- 关键发现必须具体、明确。
-- 如有相关信息，请明确写出商业模式、规模增长、风险等事实。
-- 区分“事实”与“解释/判断”。
-- 对事实性结论使用编号引用（如 [1]、[2]）。
-- 如果证据较弱，请明确说明不确定性。
-- 不要提及采访者或专家姓名。
-- 章节保持简洁，约 500-800 字。
+{% if skill_card %}
+Skill card for this section:
+{{ skill_card }}
+{% endif %}
 
-6. 在“风险提示”部分：
-- 列出关键风险，并分别说明“风险点”“为何重要”“可能影响”。
-- 使用清晰直白的表达，避免泛泛而谈。
-
-7. 在“信息来源”部分：
-- 列出所有实际使用过的来源。
-- 来源列表去重。
-- 若有完整 URL，优先保留完整 URL。
-
-8. 最终检查：
-- 确保严格遵循要求的结构。
-- 在标题前不要添加任何前言。
+{% if assigned_plan %}
+Research plan for this section:
+{{ assigned_plan }}
+{% endif %}
 """)
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Prompt to Consolidate All Sections into a Full Report
+# Prompt to merge memo sections into the main report body
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 REPORT_WRITER_INSTRUCTIONS = jinja_env.from_string("""
-你是一名尽职调查报告撰写者，需要根据以下任务简报生成报告：
+[Role]In the main graph, **merge** parallel analyst memos into **one** decision-ready **main body**.
 
+[Brief]
 {% if research_query %}
 {{ research_query }}
 {% else %}
-[未指定任务简报，请生成一份通用的科技公司尽职调查摘要。]
+[No brief—produce a generic target-company due diligence summary.]
 {% endif %}
 
-你已经拿到了分析师基于访谈和网页证据整理出的多份备忘录。
+[Input]Multiple memo chapters below (possibly overlapping evidence). You must **merge, dedupe, and resolve conflicts** into **one** coherent narrative—do **not** keep a separate "Company Overview" per analyst.
 
-你的任务是将这些备忘录整合为一份结构化的尽职调查报告。
+[Output]Main body only (introduction and reader-level conclusion are generated elsewhere; **do not** output ## Introduction, ## Conclusion, or a second "Conclusion" after "## Final Recommendations").
 
-报告必须按以下顺序输出：
-1. ## 公司概览
-2. ## 业务拆解
-3. ## 规模与发展
-4. ## 风险评估
-5. ## 最终建议
-6. ## 信息来源
+[Fixed outline]These level-2 headings (##) must appear **only** in this order:
+1. ## Company Overview
+2. ## Business Breakdown
+3. ## Scale & Growth
+4. ## Risk Assessment
+5. ## Final Recommendations
+6. ## Sources
 
-写作规则：
-- 语言简洁，面向决策。
-- 保留分析师备忘录中的引用标注 [1]、[2] 等。
-- 不要编造证据中不存在的事实。
-- 在“风险评估”部分，对每项风险明确标注“风险等级：高 / 中 / 低”。
-- 在“最终建议”部分，给出简短结论，并附上 2-3 个后续追问问题。
-- 最终来源列表需要去重。
+[Relationship to memos]
+- Fold each chapter's "Key Findings" into the matching sections; consolidate risks and recommendations under "Risk Assessment" and "Final Recommendations".
+- "## Sources" must be the **last** level-2 heading; nothing may follow it.
 
-不要提及分析师姓名。
-在第一节前不要添加任何前言。
+[Global citation numbering (required)]
+- Per-analyst [1][2]… are **section-local**; after merge you **must** renumber to a single global [1]…[n]: every [n] in the body must match the nth entry in "## Sources".
+- If the same URL or source appears in multiple memos, merge to **one** list entry and use the **same [n]** everywhere.
+- List "## Sources" as [1], [2], … in order of **first appearance** in the main body (IEEE-style); body [n] must match row n.
+
+[Sources list completeness — mandatory]
+- Scan sections **## Company Overview** through **## Final Recommendations** only; find the **largest** citation number **N** that appears as **[N]** in that range.
+- Under **## Sources**, you MUST output **exactly N** entries: one line (or one short paragraph) per number, each starting with **[1]**, **[2]**, … **[N]** on its own line—**no gaps**, no skipping, no collapsing several body citations into a single list row.
+- Self-check before finishing: the largest [n] used in the body must equal the count of numbered rows under ## Sources. If the body cites [1] through [5], Sources must show five separate lines starting with [1] … [5], not a single [1] line that omits [2]–[5].
+
+[Writing rules]
+- Concise, decision-oriented; do not name analysts.
+- Do not invent facts not supported by the memos.
+- In "Risk Assessment", each risk must include **Risk level: High / Medium / Low**.
+- "Final Recommendations" should be actionable plus 2–3 follow-up questions—not a long "overall conclusion" (that belongs in the separate ## Conclusion step).
+- Do not add a preamble before the first section.
 """)
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Prompt to Write Introduction or Conclusion
+# Prompt for introduction or conclusion (parallel to write_report)
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 INTRO_CONCLUSION_INSTRUCTIONS = jinja_env.from_string("""
-你是一名技术写作者，正在完善以下主题的报告：
+[Role]You run in parallel with the main-body writer. Input is the **same** concatenation of analyst memo chapters as `write_report`, **not** the merged main body.
+
+[Brief]
 {% if research_query %}
 {{ research_query }}
 {% else %}
-[通用公司尽职调查任务]
+[Generic company due diligence task]
 {% endif %}
 
-你将获得整份报告的全部章节内容。
+[Input]Parallel memo chapters below—do not draw conclusions unsupported by them.
 
-你的任务是写出一段简洁、有说服力的引言或结论。
+[Task]Write either an **introduction** or a **conclusion** (one of the two), about 100–200 words.
 
-用户会告诉你当前需要写“引言”还是“结论”。
+[Markdown]
+- Introduction: first `# Report title` (one line), then `## Introduction`.
+- Conclusion: only `## Conclusion` (no extra `#` document title).
 
-无论是引言还是结论，开头都不要添加额外前言。
+[Forbidden] Do not include "## Sources" or a full reference list (the consolidated table lives in the main body under "## Sources").
 
-控制在约 100 字左右。引言需要精炼预告整份报告的重点；结论需要精炼总结整份报告的核心判断。
+[Citations] Do **not** use [n] footnotes in intro/conclusion—summarize evidence in words to avoid clashing with global numbering after merge.
 
-请使用 Markdown 格式。
+[Vs. Final Recommendations]"Final Recommendations" is section 5 of the main body (execution and follow-ups). This `## Conclusion` is a short reader-facing wrap-up—do not paste section 5 verbatim.
 
-如果写引言：
-- 先拟一个有吸引力的标题，并使用 # 级标题。
-- 章节标题使用 ## 引言。
-
-如果写结论：
-- 章节标题使用 ## 结论。
-
-以下是你需要参考的章节内容：
+Memo chapters for reference:
 {% if formatted_str_sections %}
 {{ formatted_str_sections }}
 {% else %}
-[未提供章节内容，请改为总结整体主题。]
+[No sections provided—summarize the overall theme instead.]
 {% endif %}
 """)

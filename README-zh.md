@@ -289,8 +289,6 @@ awaiting_feedback（待反馈）
 - `GET /api/tasks/{task_id}`：任务详情（JSON）
 - `GET /api/tasks/{task_id}/events`：任务事件流（JSON）
 - `POST /api/tasks/{task_id}/feedback`：提交反馈并继续工作流
-- `POST /api/tasks/{task_id}/claim`：设置任务负责人
-- `POST /api/tasks/{task_id}/dependencies`：设置任务依赖
 - `POST /api/tasks/{task_id}/retry`：重试失败任务
 - `GET /api/tasks/{task_id}/files/{file_name}`：下载任务输出文件
 

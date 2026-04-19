@@ -26,15 +26,15 @@ export function AppShell({ children }: AppShellProps) {
     <div className="app-shell">
       <header className="topbar">
         <Link className="brand" to="/dashboard">
-          多智能体商业分析
+          Multi-agent business analysis
         </Link>
         <div className="topbar-actions">
-          {loading ? <span className="muted">正在检查登录状态...</span> : null}
+          {loading ? <span className="muted">Checking session…</span> : null}
           {!loading && isAuthenticated ? (
             <>
               <span className="user-chip">{user?.username}</span>
               <button className="ghost-button" onClick={handleLogout} type="button">
-                退出登录
+                Sign out
               </button>
             </>
           ) : null}
@@ -42,12 +42,12 @@ export function AppShell({ children }: AppShellProps) {
             <>
               {location.pathname !== "/login" ? (
                 <Link className="ghost-button link-button" to="/login">
-                  登录
+                  Sign in
                 </Link>
               ) : null}
               {location.pathname !== "/signup" ? (
                 <Link className="primary-button link-button" to="/signup">
-                  注册
+                  Sign up
                 </Link>
               ) : null}
             </>

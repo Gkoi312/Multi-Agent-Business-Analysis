@@ -12,11 +12,10 @@ export function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const returnTo = (location.state as { returnTo?: string; returnLabel?: string } | null)
-    ?.returnTo;
+  const returnTo = (location.state as { returnTo?: string; returnLabel?: string } | null)?.returnTo;
   const returnLabel =
     (location.state as { returnTo?: string; returnLabel?: string } | null)?.returnLabel ??
-    "返回当前任务";
+    "Back to previous task";
 
   useEffect(() => {
     let ignore = false;
@@ -30,7 +29,7 @@ export function TasksPage() {
       })
       .catch((nextError) => {
         if (!ignore) {
-          setError(nextError instanceof Error ? nextError.message : "无法加载任务列表");
+          setError(nextError instanceof Error ? nextError.message : "Failed to load tasks");
         }
       })
       .finally(() => {
@@ -49,8 +48,8 @@ export function TasksPage() {
       <section className="panel">
         <div className="section-header">
           <div>
-            <h1>我的任务</h1>
-            <p className="muted">在这里跟踪进行中、待反馈、失败和已完成的任务。</p>
+            <h1>My tasks</h1>
+            <p className="muted">Track in-progress, awaiting-feedback, failed, and completed runs.</p>
           </div>
           <div className="button-row">
             {returnTo ? (
@@ -63,20 +62,16 @@ export function TasksPage() {
               </button>
             ) : null}
             <Link className="primary-button link-button" to="/dashboard">
-              新建报告
+              New report
             </Link>
           </div>
         </div>
-        {loading ? <p>正在加载任务...</p> : null}
+        {loading ? <p>Loading tasks…</p> : null}
         {error ? <p className="error-text">{error}</p> : null}
-        {!loading && !tasks.length ? <p className="muted">暂无任务。</p> : null}
+        {!loading && !tasks.length ? <p className="muted">No tasks yet.</p> : null}
         <div className="task-grid">
           {tasks.map((task) => (
-            <TaskSummaryCard
-              key={task.id}
-              state={{ fromTasks: true, returnTo, returnLabel }}
-              task={task}
-            />
+            <TaskSummaryCard key={task.id} state={{ fromTasks: true, returnTo, returnLabel }} task={task} />
           ))}
         </div>
       </section>

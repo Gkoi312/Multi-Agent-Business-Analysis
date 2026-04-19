@@ -29,6 +29,7 @@ a {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -140,6 +141,7 @@ textarea {
 }
 
 input,
+select,
 textarea {
   width: 100%;
   border-radius: 10px;
@@ -150,6 +152,7 @@ textarea {
 }
 
 input:focus,
+select:focus,
 textarea:focus {
   outline: 2px solid rgba(37, 99, 235, 0.18);
   border-color: #2563eb;
@@ -157,6 +160,10 @@ textarea:focus {
 
 textarea {
   resize: vertical;
+}
+
+textarea.feedback-input {
+  min-height: 140px;
 }
 
 .primary-button,
@@ -285,6 +292,82 @@ textarea {
 
 .subsection {
   margin-top: 28px;
+}
+
+.report-summary-text {
+  margin: 0;
+  line-height: 1.65;
+  color: #111827;
+  padding: 16px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+}
+
+.risk-viz {
+  margin-top: 12px;
+}
+
+.risk-viz-bar {
+  display: flex;
+  height: 28px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+  background: #f3f4f6;
+}
+
+.risk-viz-seg {
+  min-width: 0;
+  height: 100%;
+  transition: width 0.2s ease;
+}
+
+.risk-viz-high {
+  background: #dc2626;
+}
+
+.risk-viz-medium {
+  background: #d97706;
+}
+
+.risk-viz-low {
+  background: #16a34a;
+}
+
+.risk-viz-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  color: #374151;
+  font-size: 0.95rem;
+}
+
+.risk-viz-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.risk-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.event-log-scroll {
+  margin-top: 8px;
+  max-height: min(70vh, 640px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #f8fafc;
 }
 
 .event-list {

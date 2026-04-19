@@ -79,7 +79,9 @@ class ModelLoader:
             provider = provider_key
             model_name = os.getenv("LLM_MODEL_NAME", "gpt-4o-mini")
             temperature = float(os.getenv("LLM_TEMPERATURE", "0.2"))
-            max_tokens = int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "2048"))
+            # Long merged reports (outline + body + many Sources lines) often exceed 2k output tokens;
+            # capping too low cuts off mid-sentence—often at the last reference.
+            max_tokens = int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "4096"))
             base_url = os.getenv("OPENAI_BASE_URL")
 
             log.info("Loading LLM", provider=provider, model=model_name)
@@ -99,6 +101,7 @@ class ModelLoader:
                     model=model_name,
                     api_key=self.api_key_mgr.get("GROQ_API_KEY"),
                     temperature=temperature,
+                    max_tokens=max_tokens,
                 )
 
             elif provider == "openai":

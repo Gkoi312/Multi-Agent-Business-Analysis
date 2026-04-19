@@ -6,6 +6,7 @@ import { SignupPage } from "./pages/SignupPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { TasksPage } from "./pages/TasksPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
+import { TaskReportPage } from "./pages/TaskReportPage";
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/tasks" element={<TasksPage />} />
+        <Route path="/tasks/:taskId/report" element={<TaskReportPage />} />
         <Route path="/tasks/:taskId" element={<TaskDetailPage />} />
       </Routes>
     </AppShell>

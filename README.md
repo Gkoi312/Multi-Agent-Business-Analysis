@@ -286,8 +286,6 @@ awaiting_feedback
 - `GET /tasks`: current user's task list in JSON
 - `GET /tasks/{task_id}`: task details in JSON
 - `GET /tasks/{task_id}/events`: task event stream in JSON
-- `POST /tasks/{task_id}/claim`: assign a task owner
-- `POST /tasks/{task_id}/dependencies`: configure task dependencies
 - `POST /tasks/{task_id}/retry`: retry a failed task
 - `GET /download/{file_name}?task_id=...`: download a task output file
 

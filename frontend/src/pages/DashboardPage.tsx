@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
@@ -9,8 +9,35 @@ export function DashboardPage() {
   const [companyName, setCompanyName] = useState("");
   const [focus, setFocus] = useState("");
   const [targetRole, setTargetRole] = useState("");
+  const [industryPack, setIndustryPack] = useState("");
+  const [skillPacks, setSkillPacks] = useState<string[]>([]);
+  const [packsLoading, setPacksLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { items } = await api.listSkillPacks();
+        if (!cancelled) {
+          setSkillPacks(items);
+          setError("");
+        }
+      } catch {
+        if (!cancelled) {
+          setError("Could not load skill packs. Ensure the API is running and backend/skills contains pack folders.");
+        }
+      } finally {
+        if (!cancelled) {
+          setPacksLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -22,35 +49,38 @@ export function DashboardPage() {
         focus,
         target_role: targetRole,
         max_analysts: 3,
+        industry_pack: industryPack,
       });
       navigate(`/tasks/${task.id}`);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "无法创建任务");
+      setError(nextError instanceof Error ? nextError.message : "Failed to create task");
     } finally {
       setSubmitting(false);
     }
   };
+
+  const noPacksConfigured = !packsLoading && skillPacks.length === 0;
 
   return (
     <RequireAuth>
       <section className="panel">
         <div className="section-header">
           <div>
-            <h1>创建尽职调查任务</h1>
+            <h1>Create due diligence task</h1>
             <p className="muted">
-              填写公司名称、可选的关注重点和目标岗位背景后，任务会立即开始，
-              你可以在任务详情页中持续查看进度。
+              The run starts after you submit. Pick the company type (skill pack) from the list—options match
+              subfolders under <code>backend/skills</code> that contain <code>skill_pack.yaml</code>.
             </p>
           </div>
           <div className="button-row">
             <Link className="secondary-button link-button" to="/tasks">
-              查看全部任务
+              All tasks
             </Link>
           </div>
         </div>
         <form className="form-grid" onSubmit={handleSubmit}>
           <label>
-            公司名称
+            Company name
             <input
               onChange={(event) => setCompanyName(event.target.value)}
               required
@@ -58,7 +88,7 @@ export function DashboardPage() {
             />
           </label>
           <label>
-            关注重点
+            Focus areas
             <textarea
               onChange={(event) => setFocus(event.target.value)}
               rows={4}
@@ -66,15 +96,42 @@ export function DashboardPage() {
             />
           </label>
           <label>
-            目标岗位
+            Target role
             <input
               onChange={(event) => setTargetRole(event.target.value)}
               value={targetRole}
             />
           </label>
+          <label>
+            Company type (skill pack)
+            <select
+              disabled={packsLoading || noPacksConfigured}
+              onChange={(event) => setIndustryPack(event.target.value)}
+              required
+              value={industryPack}
+            >
+              <option disabled hidden value="">
+                {packsLoading ? "Loading…" : "Select…"}
+              </option>
+              {skillPacks.map((id) => (
+                <option key={id} value={id}>
+                  {id}
+                </option>
+              ))}
+            </select>
+          </label>
+          {noPacksConfigured ? (
+            <p className="error-text">
+              No skill packs available. Add a subdirectory under backend/skills with skill_pack.yaml, then refresh.
+            </p>
+          ) : null}
           {error ? <p className="error-text">{error}</p> : null}
-          <button className="primary-button" disabled={submitting} type="submit">
-            {submitting ? "启动中..." : "生成报告"}
+          <button
+            className="primary-button"
+            disabled={submitting || packsLoading || noPacksConfigured}
+            type="submit"
+          >
+            {submitting ? "Starting…" : "Generate report"}
           </button>
         </form>
       </section>
