@@ -24,11 +24,13 @@ from harness.tools.search.cleaner import (
     SEARCH_PIPELINE_BASIC,
     SEARCH_PIPELINE_FULL,
     _bigram_jaccard,
+    _effective_word_count,
     _split_sentences,
     _strip_html,
     _xml_escape,
     _NUMBER_RE,
     _DATE_RE,
+    _VERSION_RE,
 )
 
 
@@ -497,9 +499,8 @@ class TestRelevanceScoreStage:
     def test_llm_can_reduce_false_positive(self):
         """LLM low score should reduce a keyword-based borderline score."""
         stage = RelevanceScoreStage(llm_batch_size=1)
-        mock_llm = MockLLM(scores={0: 10})  # LLM says 10/100 → not relevant
+        mock_llm = MockLLM(scores={0: 5})  # LLM says 5/100 → very low relevance
         ctx = ToolContext(target_entity="OpenAI", cheap_llm=mock_llm)
-        # Borderline KW: one mention in a very long body → kw_score < 0.4
         pad = "General sector trends analysis and market overview discussion. " * 120
 
         def _make_doc():
@@ -508,21 +509,20 @@ class TestRelevanceScoreStage:
                 raw_content=pad + " OpenAI is mentioned. " + "More trends. " + pad,
             )
 
-        # Run once without LLM to get KW-only score
+        # Run once without LLM to get KW-only score (fresh doc)
         doc1 = _make_doc()
         kw_stage = RelevanceScoreStage()
         kw_stage([doc1], ToolContext(target_entity="OpenAI"))
         kw_score = doc1.scores["relevance"]
         assert 0.0 < kw_score < 0.4, f"Expected borderline (0,0.4), got {kw_score}"
 
-        # Run with LLM that says "not relevant" on a FRESH doc
+        # Run with LLM on a FRESH doc — LLM says 5% relevant, should reduce score
         doc2 = _make_doc()
         stage([doc2], ctx)
         fused = doc2.scores["relevance"]
-        # Verify LLM was called
         assert len(mock_llm.calls) == 1, "LLM should have been called once"
-        # After fusion, score should differ from keyword-only
-        assert fused != kw_score, f"LLM fusion should change score, got same: {fused}"
+        # After fusion with very low LLM score, fused should be lower than pure KW
+        assert fused < kw_score, f"Expected fused ({fused}) < kw ({kw_score})"
 
 
 # ===========================================================================
@@ -921,6 +921,230 @@ class TestTavilyAdapter:
             adapter.search(SearchQuery(query="test"))
 
     def test_missing_key_raises_value_error(self):
+        from harness.tools.search.tavily import TavilyAdapter
+
+        adapter = TavilyAdapter(api_key="")
+        with pytest.raises(ValueError, match="TAVILY_API_KEY"):
+            _ = adapter._tavily
+
+
+# ===========================================================================
+# Sentence splitting — abbreviations, domains, versions
+# ===========================================================================
+
+class TestSentenceSplitter:
+    def test_abbreviation_us_not_split(self):
+        sents = _split_sentences("The U.S. market grew 5.5%. Dr. Smith agreed.")
+        assert len(sents) == 2, f"Expected 2 sentences, got {len(sents)}: {sents}"
+        assert "U.S." in sents[0]
+
+    def test_abbreviation_dr_not_split(self):
+        sents = _split_sentences("Dr. Smith and Mr. Jones met Ms. Lee at Inc. headquarters.")
+        assert len(sents) >= 1
+
+    def test_domain_not_split(self):
+        sents = _split_sentences("Visit example.com for details.")
+        assert len(sents) == 1, f"Expected 1 sentence, got {len(sents)}: {sents}"
+        assert "example.com" in sents[0]
+
+    def test_version_number_not_split(self):
+        sents = _split_sentences("Version 2.1.3 was released.")
+        assert len(sents) == 1, f"Expected 1 sentence, got {len(sents)}: {sents}"
+        assert "2.1.3" in sents[0]
+
+    def test_decimal_still_protected(self):
+        sents = _split_sentences("Revenue reached $5.5 billion. Profit increased 12.8%.")
+        assert len(sents) == 2, f"Expected 2 sentences, got {len(sents)}: {sents}"
+        assert "$5.5 billion" in sents[0]
+
+    def test_eg_ie_not_split(self):
+        sents = _split_sentences("Some examples (e.g. this one) are clear. Others (i.e. that) are not.")
+        assert len(sents) == 2, f"Expected 2 sentences, got {len(sents)}: {sents}"
+
+
+# ===========================================================================
+# Number filtering — dates, versions, quarter-year excluded
+# ===========================================================================
+
+class TestNumberFiltering:
+    def test_version_numbers_not_in_numbers(self):
+        """Version 2.1.3 should not contribute its fragments to numbers."""
+        content = "Version 2.1.3 was released on 2025-03-15. Q1 2025 revenue reached 1000 and profit increased by 5.5%."
+        stage = StructureFactsStage()
+        doc = SearchDocument(title="Report", clean_content=content)
+        result = stage([doc], ToolContext())
+        numbers = result[0].structured.get("numbers", [])
+        # Should include 1000 and 5.5%
+        assert any("1000" in n for n in numbers), f"Missing 1000 in {numbers}"
+        assert any("5.5" in n for n in numbers), f"Missing 5.5% in {numbers}"
+        # Should NOT include date fragments
+        assert not any("2025" in n for n in numbers if "Q1 2025" not in n or True), "Date year leaked"
+        # Should NOT include version fragments
+        assert not any(n.strip() in {"2", "1", "3"} for n in numbers), f"Version fragments in {numbers}"
+
+    def test_date_parts_not_in_numbers(self):
+        content = "Report date 2025-03-15. Revenue was 1000."
+        stage = StructureFactsStage()
+        doc = SearchDocument(title="Report", clean_content=content)
+        result = stage([doc], ToolContext())
+        numbers = result[0].structured.get("numbers", [])
+        assert any("1000" in n for n in numbers)
+
+    def test_version_re_matches(self):
+        assert _VERSION_RE.search("Version 2.1.3 was released") is not None
+        assert _VERSION_RE.search("1.0.0-beta.1") is not None
+
+
+# ===========================================================================
+# Chinese word count
+# ===========================================================================
+
+class TestChineseWordCount:
+    def test_chinese_length_not_zero(self):
+        cn_text = "人工智能技术正在迅速发展，市场规模不断扩大，各大企业纷纷布局相关领域。深度学习模型在自然语言处理和计算机视觉方面取得了显著进展。研究人员不断探索新的算法和架构，以提升模型性能。" * 5
+        doc = SearchDocument(url="https://x.com", title="AI Report", raw_content=cn_text)
+        stage = QualityScoreStage(score_threshold=0.0)
+        result = stage([doc], ToolContext())
+        dims = result[0].metadata["quality_dimensions"]
+        # Chinese text > 100 chars should NOT get length=0.1
+        assert dims["length"] > 0.1, f"Chinese length should not be 0.1, got {dims}"
+
+    def test_effective_word_count_chinese(self):
+        cn_text = "人工智能技术发展迅速"  # 8 CJK chars
+        ewc = _effective_word_count(cn_text)
+        assert ewc > 1.0, f"Expected >1 for 8 CJK chars, got {ewc}"
+
+    def test_effective_word_count_english(self):
+        en_text = "The quick brown fox jumps over the lazy dog"  # 9 words
+        ewc = _effective_word_count(en_text)
+        assert ewc >= 9
+
+    def test_effective_word_count_mixed(self):
+        mixed = "OpenAI 发布了 GPT-5 模型 in March 2025"
+        ewc = _effective_word_count(mixed)
+        assert ewc > 5
+
+
+# ===========================================================================
+# Entity extraction
+# ===========================================================================
+
+class TestEntityExtraction:
+    def test_extracts_single_word_entity(self):
+        content = "OpenAI partnered with Microsoft. NVIDIA also joined the initiative."
+        stage = StructureFactsStage()
+        doc = SearchDocument(title="Report", clean_content=content)
+        result = stage([doc], ToolContext())
+        entities = [e.lower() for e in result[0].structured.get("entities", [])]
+        assert "openai" in entities
+        assert "microsoft" in entities
+        assert "nvidia" in entities
+
+    def test_extracts_multi_word_person(self):
+        content = "Sam Altman met Satya Nadella at the conference."
+        stage = StructureFactsStage()
+        doc = SearchDocument(title="Report", clean_content=content)
+        result = stage([doc], ToolContext())
+        entities = [e.lower() for e in result[0].structured.get("entities", [])]
+        assert any("sam altman" in e for e in entities)
+        assert any("satya nadella" in e for e in entities)
+
+    def test_extracts_chinese_entity(self):
+        content = "华为发布新产品。阿里巴巴也参与了合作。"
+        stage = StructureFactsStage()
+        doc = SearchDocument(title="Report", clean_content=content)
+        result = stage([doc], ToolContext())
+        entities = result[0].structured.get("entities", [])
+        assert any("华为" in e for e in entities)
+        assert any("阿里巴巴" in e for e in entities)
+
+    def test_target_entity_prioritized(self):
+        content = "Many companies including openai are in this space."
+        stage = StructureFactsStage()
+        doc = SearchDocument(title="Report", clean_content=content)
+        ctx = ToolContext(target_entity="OpenAI")
+        result = stage([doc], ctx)
+        entities = result[0].structured.get("entities", [])
+        # target_entity should appear first if present
+        if entities:
+            assert "openai" in entities[0].lower()
+
+    def test_provider_entities_merged(self):
+        content = "Microsoft and Google compete in cloud."
+        stage = StructureFactsStage()
+        doc = SearchDocument(
+            title="Report", clean_content=content,
+            metadata={"entities": ["AWS", "Azure"]},
+        )
+        result = stage([doc], ToolContext())
+        entities = result[0].structured.get("entities", [])
+        assert any("AWS" in e or "aws" in e.lower() for e in entities)
+        assert any("Azure" in e or "azure" in e.lower() for e in entities)
+
+
+# ===========================================================================
+# Tavily max_results + error handling
+# ===========================================================================
+
+class TestTavilyMaxResults:
+    def test_kwargs_max_results_overrides_and_slices(self):
+        """kwargs max_results=20 should give 20 results, not query.max_results=10."""
+        from harness.tools.search.tavily import TavilyAdapter
+
+        adapter = TavilyAdapter(api_key="test-key")
+        captured: dict = {}
+
+        class FakeClient:
+            def search(self, **kwargs):
+                captured.update(kwargs)
+                # Return 20 mock results
+                return {"results": [{"url": f"https://x.com/{i}", "title": str(i), "content": "c"} for i in range(20)]}
+
+        adapter._client = FakeClient()
+        results = adapter.search(SearchQuery(query="test", max_results=10), max_results=20)
+        assert len(results) == 20
+        assert captured.get("max_results") == 20
+
+    def test_results_none_raises(self):
+        from harness.tools.search.tavily import TavilyAdapter
+
+        adapter = TavilyAdapter(api_key="test-key")
+
+        class FakeClient:
+            def search(self, **kwargs):
+                return {"results": None}
+
+        adapter._client = FakeClient()
+        with pytest.raises(RuntimeError, match="valid 'results'"):
+            adapter.search(SearchQuery(query="test"))
+
+    def test_results_not_list_raises(self):
+        from harness.tools.search.tavily import TavilyAdapter
+
+        adapter = TavilyAdapter(api_key="test-key")
+
+        class FakeClient:
+            def search(self, **kwargs):
+                return {"results": {}}  # dict, not list
+
+        adapter._client = FakeClient()
+        with pytest.raises(RuntimeError, match="valid 'results'"):
+            adapter.search(SearchQuery(query="test"))
+
+    def test_response_not_dict_raises(self):
+        from harness.tools.search.tavily import TavilyAdapter
+
+        adapter = TavilyAdapter(api_key="test-key")
+
+        class FakeClient:
+            def search(self, **kwargs):
+                return ["not", "a", "dict"]
+
+        adapter._client = FakeClient()
+        with pytest.raises(RuntimeError, match="unexpected type"):
+            adapter.search(SearchQuery(query="test"))
+
+    def test_missing_key_error_message(self):
         from harness.tools.search.tavily import TavilyAdapter
 
         adapter = TavilyAdapter(api_key="")

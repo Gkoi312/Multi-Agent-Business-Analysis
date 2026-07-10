@@ -81,6 +81,10 @@ class TavilyAdapter(SearchTool):
         # Remove None/empty values that the API would reject
         api_kwargs = {k: v for k, v in api_kwargs.items() if v is not None and v != ""}
 
+        # Compute effective max_results AFTER kwargs merge — use same value
+        # for API request and return slicing
+        effective_max_results = max(1, int(api_kwargs.get("max_results", query.max_results)))
+
         try:
             response: dict[str, Any] = self._tavily.search(**api_kwargs)
         except Exception as e:
@@ -88,7 +92,18 @@ class TavilyAdapter(SearchTool):
                 f"Tavily API search failed for query={query.query!r}: {e}"
             ) from e
 
-        raw_results: list[dict[str, Any]] = response.get("results", []) if isinstance(response, dict) else []
+        if not isinstance(response, dict):
+            raise RuntimeError(
+                f"Tavily API returned unexpected type {type(response).__name__} "
+                f"for query={query.query!r}"
+            )
+
+        raw_results = response.get("results")
+        if raw_results is None or not isinstance(raw_results, list):
+            raise RuntimeError(
+                f"Tavily API response missing valid 'results' field "
+                f"for query={query.query!r}: got {type(raw_results).__name__}"
+            )
 
         results: list[SearchDocument] = []
         for doc in raw_results:
@@ -112,7 +127,7 @@ class TavilyAdapter(SearchTool):
                 # Single malformed result shouldn't crash the whole search
                 continue
 
-        return results[: query.max_results]
+        return results[:effective_max_results]
 
     def health_check(self) -> bool:
         return bool(self._api_key)
