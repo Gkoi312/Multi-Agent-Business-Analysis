@@ -34,7 +34,6 @@ logger = logging.getLogger(__name__)
 # helpers
 # ---------------------------------------------------------------------------
 
-# Characters that break XML:  &  <  >  "  '
 _XML_ESCAPE_TABLE = str.maketrans({
     "&": "&amp;",
     "<": "&lt;",
@@ -53,7 +52,6 @@ _TRACKING_PARAMS = {
 
 # ----- Prompt injection patterns --------------------------------------------
 
-# High confidence: independently sufficient to drop a document
 _HIGH_CONFIDENCE_INJECTION: list[re.Pattern] = [
     re.compile(r"ignore\s+(all\s+)?(previous|above)\s+(instructions?|prompts?)", re.IGNORECASE),
     re.compile(r"system\s*(prompt|message)\s*(is|was|:)", re.IGNORECASE),
@@ -64,7 +62,6 @@ _HIGH_CONFIDENCE_INJECTION: list[re.Pattern] = [
     re.compile(r"DAN\s+mode|developer\s+mode|jailbreak", re.IGNORECASE),
 ]
 
-# Low confidence: only warn, never drop alone
 _LOW_CONFIDENCE_INJECTION: list[re.Pattern] = [
     re.compile(r"pretend|roleplay|act\s+as\s+if", re.IGNORECASE),
 ]
@@ -79,7 +76,6 @@ _SEO_FILLER_PHRASES: list[str] = [
     "免责声明", "广告", "推广",
 ]
 
-# Domain patterns that consistently produce low-value / SEO-spam content
 _SPAM_DOMAIN_PATTERNS: list[str] = []
 
 
@@ -94,27 +90,65 @@ def _xml_escape(text: str) -> str:
 
 # ----- HTML tag stripper (HTMLParser-based, not regex) -----------------------
 
+# Tags whose entire inner content (including nested tags) is discarded
+_SKIP_TAGS = {"script", "style", "noscript", "template", "svg"}
+
+# Block-level tags that should produce a space or newline boundary
+_BLOCK_TAGS = {
+    "p", "div", "section", "article", "main", "header", "footer",
+    "li", "ul", "ol", "br", "h1", "h2", "h3", "h4", "h5", "h6",
+    "tr", "td", "th", "blockquote", "pre", "figure", "figcaption",
+}
+
 
 class _TagStripper(HTMLParser):
     """HTMLParser that strips tags while preserving text content.
 
-    Unlike ``<[^>]*>`` regex, this correctly preserves comparison operators
-    like ``Revenue < 5 & profit > 2`` — ``<`` followed by a space or digit
-    is not a tag start.
+    - Tags listed in ``_SKIP_TAGS`` (script, style, noscript, template, svg)
+      have their **entire content discarded**, including nested children.
+    - Block-level tags insert a space or newline boundary so text from
+      adjacent elements does not run together.
+    - Comparison operators like ``Revenue < 5 & profit > 2`` are preserved
+      because ``<`` followed by space/digit is not a tag start.
     """
 
     def __init__(self):
         super().__init__(convert_charrefs=False)
         self._parts: list[str] = []
+        self._skip_depth: int = 0  # >0 → we are inside a SKIP_TAG (supports nesting)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() in _SKIP_TAGS:
+            self._skip_depth += 1
+            return
+        if self._skip_depth > 0:
+            return
+        if tag.lower() in _BLOCK_TAGS:
+            self._parts.append(" " if tag.lower() != "br" else "\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() in _SKIP_TAGS:
+            if self._skip_depth > 0:
+                self._skip_depth -= 1
+            return
+        if self._skip_depth > 0:
+            return
+        if tag.lower() in _BLOCK_TAGS:
+            self._parts.append(" ")
 
     def handle_data(self, data: str) -> None:
+        if self._skip_depth > 0:
+            return
         self._parts.append(data)
 
     def handle_entityref(self, name: str) -> None:
-        # Preserve named entities as-is; html.unescape resolves them later
+        if self._skip_depth > 0:
+            return
         self._parts.append(f"&{name};")
 
     def handle_charref(self, name: str) -> None:
+        if self._skip_depth > 0:
+            return
         self._parts.append(f"&#{name};")
 
     def get_text(self) -> str:
@@ -125,16 +159,21 @@ def _strip_html(text: str) -> str:
     """Remove HTML tags using HTMLParser and unescape entities.
 
     Safe for text containing comparison operators::
+
         >>> _strip_html("Revenue < 5 & profit > 2")
         'Revenue < 5 & profit > 2'
         >>> _strip_html("<p>Hello <em>world</em></p>")
         'Hello world'
+        >>> _strip_html("<p>Hello</p><script>alert('x')</script><p>World</p>")
+        'Hello World'
+
+    ``script``, ``style``, ``noscript``, ``template``, ``svg`` contents are
+    discarded entirely.  Block-level tags insert whitespace boundaries.
     """
     stripper = _TagStripper()
     try:
         stripper.feed(text)
     except Exception:
-        # If HTMLParser chokes on truly malformed input, fall back to regex
         text = re.sub(r"<[A-Za-z][^>]*>", " ", text)
     else:
         text = stripper.get_text()
@@ -146,11 +185,7 @@ def _strip_html(text: str) -> str:
 
 
 def _bigram_jaccard(a: str, b: str) -> float:
-    """Bigram Jaccard — works for Chinese (character bigrams) and English (word bigrams).
-
-    For CJK text, bigrams are formed on characters (no whitespace splitting).
-    For non-CJK text, bigrams are formed on whitespace-delimited words.
-    """
+    """Bigram Jaccard for Chinese (character bigrams) and English (word bigrams)."""
     if not a or not b:
         return 0.0
 
@@ -174,16 +209,11 @@ def _bigram_jaccard(a: str, b: str) -> float:
 
 
 def _content_fingerprint(text: str, n: int = 5) -> str:
-    """Compute a lightweight MinHash-ish fingerprint for near-duplicate detection.
-
-    For CJK-heavy text uses character 3-grams; for others uses word 3-grams.
-    """
+    """Compute a lightweight MinHash-ish fingerprint for near-duplicate detection."""
     if not text:
         return ""
-    # Check if primarily CJK
     cjk_count = sum(1 for ch in text if '一' <= ch <= '鿿' or '㐀' <= ch <= '䶿')
     if cjk_count > len(text) * 0.3:
-        # Character trigrams
         chars = [ch for ch in text if ch.strip()]
         shingles = ["".join(chars[i:i+3]) for i in range(max(1, len(chars) - 2))]
     else:
@@ -201,8 +231,23 @@ def _content_fingerprint(text: str, n: int = 5) -> str:
 
 def _extract_keywords(text: str) -> list[str]:
     """Extract potential Chinese keywords (2-4 character sequences)."""
-    cjk = re.findall(r'[一-鿿㐀-䶿]{2,4}', text)
-    return cjk
+    return re.findall(r'[一-鿿㐀-䶿]{2,4}', text)
+
+
+# ----- Sentence splitter (decimal-aware) -------------------------------------
+
+
+def _split_sentences(text: str) -> list[str]:
+    """Split text into sentences, protecting decimal points.
+
+    Temporarily replaces decimal points (``5.5`` → ``5__DOT__5``) before
+    splitting on ``. ! ?`` and Chinese terminators, then restores them.
+    This avoids false splits on ``$5.5 billion`` or ``12.8%``.
+    """
+    # Protect decimal points: digit.digit patterns
+    protected = re.sub(r"(\d)\.(\d)", r"\1__DOT__\2", text)
+    sentences = re.split(r"(?<=[.!?。！？\n])\s*", protected)
+    return [s.replace("__DOT__", ".").strip() for s in sentences if s.strip()]
 
 
 # ===========================================================================
@@ -210,12 +255,7 @@ def _extract_keywords(text: str) -> list[str]:
 # ===========================================================================
 
 class CanonicalizeURLStage(ProcessingStage):
-    """Remove tracking query parameters (utm_*, gclid, fbclid, …) and URL fragments.
-
-    Uses ``parse_qsl`` + ``urlencode`` to preserve repeated params,
-    empty params, and percent-encoding.  Sets ``doc.canonical_url``.
-    Does **not** drop any documents.
-    """
+    """Remove tracking query parameters (utm_*, gclid, fbclid, …) and URL fragments."""
 
     name = "canonicalize_url"
 
@@ -231,21 +271,19 @@ class CanonicalizeURLStage(ProcessingStage):
                 continue
             try:
                 parsed = urlparse(doc.url)
-                # parse_qsl preserves duplicates and encoding (vs parse_qs which loses both)
                 qsl = parse_qsl(parsed.query, keep_blank_values=True)
                 cleaned_qsl = [
                     (k, v) for k, v in qsl
                     if k.lower() not in self.tracking_params
                 ]
                 cleaned_query = urlencode(cleaned_qsl, doseq=True, quote_via=quote)
-                # Reconstruct without fragment
                 doc.canonical_url = urlunparse((
                     parsed.scheme,
                     parsed.netloc.lower(),
                     parsed.path.rstrip("/") or "/",
                     parsed.params,
                     cleaned_query,
-                    "",  # drop fragment
+                    "",
                 ))
             except Exception:
                 doc.canonical_url = doc.url
@@ -260,11 +298,9 @@ class CanonicalizeURLStage(ProcessingStage):
 class CleanTextStage(ProcessingStage):
     """Strip HTML tags via HTMLParser, collapse whitespace, populate ``clean_content``.
 
+    ``script``, ``style``, ``noscript``, ``template``, ``svg`` contents are discarded.
+    Block-level tags insert whitespace boundaries.
     **Never** modifies ``raw_content``.
-    HTMLParser correctly preserves ``Revenue < 5 & profit > 2``
-    (unlike ``<[^>]*>`` regex which eats comparison operators).
-
-    Drops documents whose cleaned content is too short (default 50 chars).
     """
 
     name = "clean_text"
@@ -300,38 +336,26 @@ class CleanTextStage(ProcessingStage):
 # ===========================================================================
 
 class ExactDeduplicateStage(ProcessingStage):
-    """Drop documents with duplicate ``canonical_url`` — best-wins, not first-wins.
-
-    Strategy for same canonical_url:
-    1. Skip documents already marked as dropped.
-    2. Among non-dropped duplicates, prefer the one with:
-       - longer ``clean_content``
-       - higher ``provider_score`` (as tiebreaker)
-
-    Already-dropped docs never claim a canonical_url slot.
-    """
+    """Drop documents with duplicate ``canonical_url`` — best-wins, not first-wins."""
 
     name = "exact_dedup"
 
     def __call__(
         self, data: list[SearchDocument], ctx: ToolContext
     ) -> list[SearchDocument]:
-        # Group by canonical_url, tracking indices
         url_map: dict[str, list[int]] = {}
         for i, doc in enumerate(data):
             if doc.dropped_reason:
-                # Dropped docs never participate as keepers and never claim a slot
                 continue
             key = doc.canonical_url or doc.url
             if not key:
                 continue
             url_map.setdefault(key, []).append(i)
 
-        # For each group with >1 entry, pick the best; drop the rest
         for key, indices in url_map.items():
             if len(indices) <= 1:
                 continue
-            # Sort by quality: dropped last, then by content length, then by provider_score
+
             def _sort_key(idx: int) -> tuple[int, int, float]:
                 d = data[idx]
                 has_dropped = 1 if d.dropped_reason else 0
@@ -340,7 +364,6 @@ class ExactDeduplicateStage(ProcessingStage):
                 return (-has_dropped, content_len, score)
 
             indices.sort(key=_sort_key, reverse=True)
-            # First is best — keep; rest are duplicates
             for idx in indices[1:]:
                 data[idx].dropped_reason = "duplicate_url"
                 data[idx].warnings.append(
@@ -355,13 +378,7 @@ class ExactDeduplicateStage(ProcessingStage):
 # ===========================================================================
 
 class NearDuplicateStage(ProcessingStage):
-    """Detect near-duplicate documents using content fingerprint + title bigram Jaccard.
-
-    When document *i* is marked as dropped (because *j* has longer content),
-    stop comparing *i* with further documents — it's already out.
-
-    Fingerprints use character trigrams for CJK text, word trigrams otherwise.
-    """
+    """Detect near-duplicate documents using content fingerprint + title bigram Jaccard."""
 
     name = "near_dedup"
 
@@ -372,7 +389,6 @@ class NearDuplicateStage(ProcessingStage):
     def __call__(
         self, data: list[SearchDocument], ctx: ToolContext
     ) -> list[SearchDocument]:
-        # Compute fingerprints for all non-dropped docs
         fingerprints: dict[int, str] = {}
         for i, doc in enumerate(data):
             if not doc.dropped_reason:
@@ -396,7 +412,6 @@ class NearDuplicateStage(ProcessingStage):
                         fp_sim = len(set_i & set_j) / len(set_i | set_j)
 
                 title_sim = _bigram_jaccard(data[i].title, data[j].title)
-
                 is_dup = fp_sim > self.fp_threshold or title_sim > self.title_threshold
                 if not is_dup:
                     continue
@@ -413,7 +428,6 @@ class NearDuplicateStage(ProcessingStage):
                     data[i].warnings.append(
                         f"near_duplicate_of:{data[j].canonical_url or data[j].url}"
                     )
-                    # i is dropped — stop comparing i with further docs
                     break
 
         return data
@@ -426,15 +440,18 @@ class NearDuplicateStage(ProcessingStage):
 class RelevanceScoreStage(ProcessingStage):
     """Score each document's relevance to the target entity and focus area.
 
-    Scoring dimensions:
-    - **Title match** — target entity hit in title gets independent weight (0.3 bonus).
+    Scoring dimensions (all 0.0–1.0 component scores):
+    - **Title match** — 1.0 if target entity appears in title, else 0.0.
     - **Content density** — sliding-window keyword density for target_entity.
-    - **Focus match** — target_focus keywords (supports Chinese via character extraction).
-    - **Provider score** — high provider_score docs qualify for LLM even with zero keyword hits.
+    - **Focus match** — target_focus keywords (supports Chinese).
 
-    Batch LLM: splits borderline docs into batches of ``llm_batch_size``,
-    each batch in one API call.  LLM and keyword scores are **weighted-fused**
-    (0.4 × keyword + 0.6 × LLM), not max().
+    Composite (target only): ``0.35 × title_score + 0.65 × content_score``.
+    Composite (target + focus): ``0.30 × title_score + 0.45 × content_score + 0.25 × focus_score``.
+
+    Title-only hit is guaranteed to score ≥ 0.35, above the default 0.15 threshold.
+
+    Batch LLM: splits borderline docs into batches of ``llm_batch_size``.
+    LLM and keyword scores are weighted-fused: ``0.4 × keyword + 0.6 × LLM``.
     """
 
     name = "relevance"
@@ -455,12 +472,12 @@ class RelevanceScoreStage(ProcessingStage):
                     doc.scores["relevance"] = 0.5
             return data
 
-        # ---- Keyword-density scoring (title + content separate) ----
+        # ---- Keyword-density scoring ----
         active_docs = [(i, doc) for i, doc in enumerate(data) if not doc.dropped_reason]
         for _, doc in active_docs:
             doc.scores["relevance"] = self._compute_keyword_score(doc, target, focus)
 
-        # ---- Batch LLM pass for borderline docs (including high provider_score) ----
+        # ---- Batch LLM pass ----
         if ctx.cheap_llm:
             borderline = [
                 (i, doc) for i, doc in active_docs
@@ -485,7 +502,7 @@ class RelevanceScoreStage(ProcessingStage):
     def _compute_keyword_score(
         self, doc: SearchDocument, target: str, focus: str
     ) -> float:
-        """Score relevance using separate title and content analysis."""
+        """Score relevance using separate title and content components."""
         title_lower = (doc.title or "").lower()
         content_lower = (doc.clean_content or doc.raw_content or "").lower()
         words = content_lower.split()
@@ -494,14 +511,11 @@ class RelevanceScoreStage(ProcessingStage):
         content_score = 0.0
         focus_score = 0.0
 
-        # --- Title: target entity hit gets independent weight ---
         if target:
-            if target in title_lower:
-                # Count occurrences in title for differentiation
-                title_hits = title_lower.count(target)
-                title_score = min(1.0, 0.30 + 0.10 * min(title_hits - 1, 3))
+            # Title: 1.0 if target appears, else 0.0
+            title_score = 1.0 if target in title_lower else 0.0
 
-            # --- Content: sliding-window density ---
+            # Content: sliding-window density
             if len(words) >= 10:
                 window_size = min(50, len(words))
                 window_hits = sum(
@@ -513,9 +527,7 @@ class RelevanceScoreStage(ProcessingStage):
             else:
                 content_score = 1.0 if target in content_lower else 0.0
 
-        # --- Focus: support Chinese + English keywords ---
         if focus:
-            # Extract potential Chinese keywords from focus
             cjk_keywords = _extract_keywords(focus)
             if cjk_keywords:
                 focus_hits = sum(1 for kw in cjk_keywords if kw in content_lower)
@@ -525,18 +537,18 @@ class RelevanceScoreStage(ProcessingStage):
                 focus_hits = sum(1 for w in focus_words if w in content_lower)
                 focus_score = focus_hits / max(1, len(focus_words)) * 0.5
 
-        # Composite
+        # Composite — component scores are independent 0.0–1.0
         if target and focus:
-            composite = title_score * 0.30 + content_score * 0.40 + focus_score * 0.30
+            composite = 0.30 * title_score + 0.45 * content_score + 0.25 * focus_score
         elif target:
-            composite = title_score * 0.35 + content_score * 0.65
+            composite = 0.35 * title_score + 0.65 * content_score
         else:
             composite = focus_score
 
         return round(min(1.0, composite), 4)
 
     def _eligible_for_llm(self, doc: SearchDocument) -> bool:
-        """Determine if a document should be sent to LLM for relevance scoring.
+        """Documents eligible for LLM re-scoring.
 
         Eligible: keyword score in borderline range (0.0-0.4), OR
         zero keyword hits but high provider_score (>0.7).
@@ -555,11 +567,10 @@ class RelevanceScoreStage(ProcessingStage):
         focus: str,
         ctx: ToolContext,
     ) -> None:
-        """Score borderline documents using LLM in batches."""
+        """Score borderline documents using LLM in batches of ``llm_batch_size``."""
         if not ctx.cheap_llm:
             return
 
-        # Split into batches
         for batch_start in range(0, len(borderline), self.llm_batch_size):
             batch = borderline[batch_start:batch_start + self.llm_batch_size]
             self._score_single_batch(batch, target, focus, ctx)
@@ -573,7 +584,7 @@ class RelevanceScoreStage(ProcessingStage):
     ) -> None:
         """Score one batch of documents via a single LLM call."""
         focus_str = f"\nFocus area: {focus}" if focus else ""
-        items = []
+        items: list[str] = []
         for idx, (_, doc) in enumerate(batch):
             text = (doc.clean_content or doc.raw_content)[:300]
             items.append(
@@ -598,14 +609,14 @@ class RelevanceScoreStage(ProcessingStage):
                 if m:
                     idx = int(m.group(1))
                     raw_score = int(m.group(2))
-                    llm_score = max(0, min(100, raw_score)) / 100.0
+                    llm_score = max(0.0, min(100.0, float(raw_score))) / 100.0
                     if 0 <= idx < len(batch):
                         kw_score = batch[idx][1].scores.get("relevance", 0.5)
-                        # Weighted fusion: 0.4 × keyword + 0.6 × LLM
                         fused = round(0.4 * kw_score + 0.6 * llm_score, 4)
                         batch[idx][1].scores["relevance"] = fused
         except Exception as e:
             logger.warning("Batch LLM relevance scoring failed: %s", e)
+            # fail-open: keep existing keyword scores for this batch
 
 
 # ===========================================================================
@@ -613,16 +624,7 @@ class RelevanceScoreStage(ProcessingStage):
 # ===========================================================================
 
 class QualityScoreStage(ProcessingStage):
-    """Score content quality on multiple dimensions — never a single hard gate.
-
-    Dimensions (each 0.0 – 1.0):
-    1. **Fact density** — presence of dates, numbers, named entities.
-    2. **SEO-filler ratio** — filler phrase **occurrence count** vs total words.
-    3. **Domain credibility** — known spam domains get score 0.0.
-    4. **Content length** — very short content gets penalised.
-
-    Filler count uses each phrase's total occurrences, not just presence.
-    """
+    """Score content quality on multiple dimensions — never a single hard gate."""
 
     name = "quality"
 
@@ -642,17 +644,14 @@ class QualityScoreStage(ProcessingStage):
 
             dimension_scores: dict[str, float] = {}
 
-            # 1) Domain credibility
             dimension_scores["domain"] = 0.0 if self._is_spam_domain(url_lower) else 1.0
 
-            # 2) Fact density
             numbers = len(_NUMBER_RE.findall(content))
             dates = len(_DATE_RE.findall(content))
             entities = len(_ENTITY_RE.findall(content))
             fact_score = min(1.0, numbers * 0.15 + dates * 0.25 + entities * 0.2)
             dimension_scores["fact_density"] = fact_score
 
-            # 3) SEO-filler ratio — count total occurrences, not unique phrases
             filler_occurrences = sum(
                 content_lower.count(phrase.lower()) for phrase in _SEO_FILLER_PHRASES
             )
@@ -664,7 +663,6 @@ class QualityScoreStage(ProcessingStage):
                 filler_score = 0.5
             dimension_scores["seo_filler"] = filler_score
 
-            # 4) Content length
             if word_count < 20:
                 length_score = 0.1
             elif word_count < 50:
@@ -675,7 +673,6 @@ class QualityScoreStage(ProcessingStage):
                 length_score = 1.0
             dimension_scores["length"] = length_score
 
-            # Composite
             weights = {"domain": 0.30, "fact_density": 0.30, "seo_filler": 0.25, "length": 0.15}
             composite = round(sum(dimension_scores[k] * weights[k] for k in weights), 4)
             doc.scores["quality"] = composite
@@ -698,31 +695,48 @@ class QualityScoreStage(ProcessingStage):
 # Stage 7 — Structure facts
 # ===========================================================================
 
+# Improved number regex: supports plain integers, comma-separated, decimals,
+# percentages, currency symbols, and Chinese/English units.
 _NUMBER_RE = re.compile(
-    r"\$?\b\d{1,3}(?:,\d{3})*(?:\.\d+)?\s?(?:million|billion|trillion|%|percent|k|M|B|T|万亿|亿|万)?\b",
-    re.IGNORECASE,
+    r"""
+    (?<![\w.])
+    (?:[$€£¥￥]\s*)?
+    (?:
+        \d{1,3}(?:,\d{3})+
+        |
+        \d+(?:\.\d+)?
+    )
+    \s*
+    (?:
+        %
+        |percent
+        |thousand
+        |million
+        |billion
+        |trillion
+        |k|m|b|t
+        |万亿|亿|万
+    )?
+    (?![\w-])
+    """,
+    re.IGNORECASE | re.VERBOSE,
 )
+
 _DATE_RE = re.compile(
     r"\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}\s(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s\d{4}|(?:20\d{2}|Q[1-4]\s?20\d{2}))\b",
     re.IGNORECASE,
 )
+
 _ENTITY_RE = re.compile(
     r"\b[A-Z一-鿿][A-Za-z一-鿿]+(?:\s[A-Z一-鿿][A-Za-z一-鿿]+){1,3}\b"
 )
-_SENTENCE_RE = re.compile(r"[^.!?。！？\n]+[.!?。！？]?")
 
 
 class StructureFactsStage(ProcessingStage):
     """Extract structured metadata from document content.
 
-    Does **not** call an LLM; purely regex + heuristics.
-    Populates ``doc.structured`` with:
-    - ``numbers`` — financial figures, percentages, counts (top 10)
-    - ``dates`` — ISO dates, month-year, quarter references (top 5)
-    - ``entities`` — capitalized multi-word noun phrases (top 10)
-    - ``sentiment`` — "positive" | "negative" | "neutral"
-    - ``char_count`` — character count of clean_content
-    - ``evidence`` — up to 3 sentences containing extracted numbers
+    Populates ``doc.structured`` with numbers, dates, entities, sentiment,
+    char_count, and evidence sentences.
     """
 
     name = "structure"
@@ -740,19 +754,25 @@ class StructureFactsStage(ProcessingStage):
             dates = _DATE_RE.findall(content)
             entities = _ENTITY_RE.findall(content)
 
-            sentences = _SENTENCE_RE.findall(content)
+            # Use decimal-aware sentence splitter
+            sentences = _split_sentences(content)
             evidence: list[str] = []
+            seen_evidence: set[str] = set()
             if numbers:
                 for sent in sentences:
-                    if any(n in sent for n in numbers[:5]):
-                        evidence.append(sent.strip())
+                    if any(n.strip() in sent for n in numbers[:5]):
+                        s = sent.strip()
+                        if s and s not in seen_evidence:
+                            evidence.append(s)
+                            seen_evidence.add(s)
                         if len(evidence) >= 3:
                             break
 
+            # Deduplicate while preserving order for numbers/dates
             doc.structured = {
-                "numbers": list(dict.fromkeys(numbers))[:10],
-                "dates": list(dict.fromkeys(dates))[:5],
-                "entities": list(dict.fromkeys(entities))[:10],
+                "numbers": list(dict.fromkeys(n.strip() for n in numbers))[:10],
+                "dates": list(dict.fromkeys(d.strip() for d in dates))[:5],
+                "entities": list(dict.fromkeys(e.strip() for e in entities))[:10],
                 "sentiment": self._classify_sentiment(content),
                 "char_count": len(content),
                 "evidence": evidence,
@@ -783,19 +803,13 @@ class StructureFactsStage(ProcessingStage):
 
 
 # ===========================================================================
-# Stage 8 — Output guard (NO XML escaping — that belongs to FormatDocumentStage)
+# Stage 8 — Output guard
 # ===========================================================================
 
 class OutputGuardStage(ProcessingStage):
-    """Guard against unsafe content before passing documents to the LLM.
-
-    Performs:
-    1. **Prompt injection detection** — high-confidence patterns → drop;
-       low-confidence patterns → warning only (never drop alone).
-    2. **Character budget** — truncate over-long content with warning.
+    """Guard against unsafe content — injection detection + budget truncation.
 
     Does **NOT** XML-escape — that happens exactly once in FormatDocumentStage.
-    This prevents double-escaping bugs like ``AT&amp;amp;T``.
     """
 
     name = "output_guard"
@@ -818,7 +832,7 @@ class OutputGuardStage(ProcessingStage):
             content = doc.clean_content or doc.raw_content
             title = doc.title or ""
 
-            # 1) Prompt injection detection — high confidence
+            # High-confidence injection → drop
             high_hits: list[str] = []
             for pattern in _HIGH_CONFIDENCE_INJECTION:
                 for m in pattern.finditer(content):
@@ -831,7 +845,7 @@ class OutputGuardStage(ProcessingStage):
                 doc.dropped_reason = "prompt_injection"
                 continue
 
-            # 2) Prompt injection detection — low confidence (warn only)
+            # Low-confidence injection → warn only
             low_hits: list[str] = []
             for pattern in _LOW_CONFIDENCE_INJECTION:
                 for m in pattern.finditer(content):
@@ -841,9 +855,8 @@ class OutputGuardStage(ProcessingStage):
 
             if low_hits:
                 doc.warnings.append(f"prompt_injection_low:{','.join(low_hits[:3])}")
-                # Never drop based on low-confidence alone
 
-            # 3) Character budget (no XML escaping — use raw lengths)
+            # Character budget
             if len(title) > self.max_title_chars:
                 doc.title = title[:self.max_title_chars - 3] + "..."
                 doc.warnings.append("title_truncated")
@@ -856,16 +869,11 @@ class OutputGuardStage(ProcessingStage):
 
 
 # ===========================================================================
-# Stage 9 — Format for LLM (all XML escaping happens HERE, exactly once)
+# Stage 9 — Format for LLM
 # ===========================================================================
 
 class FormatDocumentStage(ProcessingStage):
-    """Render each document as an XML ``<Document>`` block for LLM consumption.
-
-    This is the **only** stage that performs XML escaping — all user-supplied
-    fields are escaped exactly once.  Warnings are rendered as structured
-    ``<Warnings>`` elements, not XML comments (which break on ``--``).
-    """
+    """Render each document as XML.  The **only** stage that XML-escapes."""
 
     name = "format"
 
@@ -890,14 +898,12 @@ class FormatDocumentStage(ProcessingStage):
                 f'<Document index="{i+1}" href="{href}" title="{title}">'
             )
 
-            # Scores
             if scores:
-                score_parts = []
-                for k, v in sorted(scores.items()):
-                    score_parts.append(f'{k}="{v:.2f}"')
+                score_parts = [
+                    f'{k}="{v:.2f}"' for k, v in sorted(scores.items())
+                ]
                 parts.append(f"  <Scores {' '.join(score_parts)}/>")
 
-            # Structured facts
             numbers = structured.get("numbers", [])
             if numbers:
                 nums = ", ".join(_xml_escape(n) for n in numbers[:10])
@@ -922,10 +928,8 @@ class FormatDocumentStage(ProcessingStage):
                 for ev in evidence[:3]:
                     parts.append(f"  <Evidence>{_xml_escape(ev)}</Evidence>")
 
-            # Main content
             parts.append(f"  <Content>{content}</Content>")
 
-            # Warnings as structured elements (not XML comments — avoids -- issues)
             if doc.warnings:
                 parts.append("  <Warnings>")
                 for w in doc.warnings[:10]:
