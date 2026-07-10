@@ -14,10 +14,9 @@ import os
 import urllib.request
 import urllib.parse
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any
 
-from harness.tools.search.base import SearchQuery, SearchResult, SearchTool
+from harness.tools.search.base import SearchDocument, SearchQuery, SearchTool
 
 
 @dataclass
@@ -38,8 +37,8 @@ class RepoMetrics:
 class GitHubReposAdapter(SearchTool):
     """Search public GitHub repositories.
 
-    Converts GitHub's REST API response into ``SearchResult`` items with
-    a ``repo_metrics`` field for downstream analysis.
+    Converts GitHub's REST API response into ``SearchDocument`` items with
+    a ``repo_metrics`` field in metadata for downstream analysis.
     """
 
     name = "github"
@@ -49,7 +48,7 @@ class GitHubReposAdapter(SearchTool):
         self._token = api_token or os.getenv("GITHUB_API_TOKEN", "") or None
 
     # ------------------------------------------------------------------
-    def search(self, query: SearchQuery, **kwargs) -> list[SearchResult]:
+    def search(self, query: SearchQuery, **kwargs) -> list[SearchDocument]:
         q_parts = [query.query]
         # Narrow by language if hints suggest it
         lang_hints = {
@@ -84,7 +83,7 @@ class GitHubReposAdapter(SearchTool):
         except Exception:
             return []
 
-        results: list[SearchResult] = []
+        results: list[SearchDocument] = []
         items = data.get("items", []) if isinstance(data, dict) else []
         for repo in items:
             if not isinstance(repo, dict):
@@ -104,10 +103,11 @@ class GitHubReposAdapter(SearchTool):
                 archived=bool(repo.get("archived", False)),
             )
             results.append(
-                SearchResult(
+                SearchDocument(
                     url=repo.get("html_url", ""),
+                    canonical_url=repo.get("html_url", ""),
                     title=full_name,
-                    content=(
+                    raw_content=(
                         f"Repository: {full_name}\n"
                         f"Description: {desc}\n"
                         f"Stars: {metrics.stars} | Forks: {metrics.forks} | "
@@ -118,6 +118,8 @@ class GitHubReposAdapter(SearchTool):
                         f"Archived: {metrics.archived}"
                     ),
                     source_type=query.source_type,
+                    provider=self.name,
+                    metadata={"repo_metrics": metrics.__dict__},
                     raw={**repo, "repo_metrics": metrics.__dict__},
                 )
             )

@@ -14,7 +14,7 @@ import urllib.request
 import urllib.parse
 from typing import Any
 
-from harness.tools.search.base import SearchQuery, SearchResult, SearchTool
+from harness.tools.search.base import SearchDocument, SearchQuery, SearchTool
 
 # Bocha freshness values
 _FRESHNESS_MAP = {
@@ -34,7 +34,7 @@ class BochaAdapter(SearchTool):
         self._api_key = api_key or os.getenv("BOCHA_API_KEY", "")
 
     # ------------------------------------------------------------------
-    def search(self, query: SearchQuery, **kwargs) -> list[SearchResult]:
+    def search(self, query: SearchQuery, **kwargs) -> list[SearchDocument]:
         if not self._api_key:
             return []
 
@@ -72,7 +72,7 @@ class BochaAdapter(SearchTool):
                 if isinstance(wp, dict):
                     pages = wp.get("value", []) or []
 
-        results: list[SearchResult] = []
+        results: list[SearchDocument] = []
         for page in pages:
             if not isinstance(page, dict):
                 continue
@@ -83,12 +83,14 @@ class BochaAdapter(SearchTool):
                 or ""
             )
             results.append(
-                SearchResult(
+                SearchDocument(
                     url=str(page.get("url", "") or ""),
+                    canonical_url=str(page.get("url", "") or ""),
                     title=str(page.get("name", "") or page.get("title", "") or ""),
-                    content=content,
+                    raw_content=content,
                     published_date=str(page.get("dateLastCrawled", "") or ""),
                     source_type=query.source_type,
+                    provider=self.name,
                     raw=page,
                 )
             )

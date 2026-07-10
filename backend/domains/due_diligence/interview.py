@@ -12,10 +12,14 @@ import uuid
 from typing import Any
 
 from harness.models.agent import AnalystPlan, RetrievedSource, ReviewFinding, SearchQuery
-from harness.tools.search.base import SearchQuery as ToolSearchQuery, SearchResult
+from harness.models.memory import CompressedTurn, MergedMemory
+from harness.tools.search.base import SearchDocument, SearchQuery as ToolSearchQuery
 from harness.tools.pipeline import ToolPipeline, ToolContext
 from harness.tools.registry import TOOL_REGISTRY, ToolRegistry
 from harness.tools.search.cleaner import SEARCH_PIPELINE_FULL
+from harness.memory.compressor import IncrementalCompressor
+from harness.memory.working_memory import WorkingMemory
+from harness.memory.context_window import ContextWindowManager
 from domains.due_diligence.schemas import InterviewState
 from domains.due_diligence.prompts.interview import (
     ANALYST_ASK_QUESTIONS,
@@ -38,20 +42,27 @@ class InterviewGraphBuilder:
         5. Writing a summarized report section.
     """
 
-    def __init__(self, llm, tavily_search=None, tool_registry: ToolRegistry | None = None, pipeline: ToolPipeline | None = None):
+    def __init__(self, llm, tavily_search=None, tool_registry: ToolRegistry | None = None, pipeline: ToolPipeline | None = None, cheap_llm=None):
         """
         Initialize the InterviewGraphBuilder.
 
         Args:
-            llm: Language model instance.
+            llm: Language model instance (primary, for reasoning tasks).
             tavily_search: (deprecated) Legacy TavilySearchResults instance.
             tool_registry: ToolRegistry for resolving search backends.
             pipeline: ToolPipeline for cleaning search results.
+            cheap_llm: Optional cheaper/faster LLM for compression tasks.
+                       Falls back to *llm* if not provided.
         """
         self.llm = llm
+        self.cheap_llm = cheap_llm or llm
         self.tavily_search = tavily_search  # kept for backward compat
         self.tool_registry = tool_registry or TOOL_REGISTRY
         self.pipeline = pipeline or ToolPipeline(SEARCH_PIPELINE_FULL)
+        self.compressor = IncrementalCompressor(
+            self.cheap_llm,
+            window_manager=ContextWindowManager(model_name=getattr(self.cheap_llm, "model_name", "gpt-4o-mini")),
+        )
         self.memory = MemorySaver()
         self.logger = GLOBAL_LOGGER.bind(module="InterviewGraphBuilder")
 
@@ -193,6 +204,9 @@ class InterviewGraphBuilder:
         assigned_plan = state.get("assigned_plan")
         domain_memory = state.get("domain_memory", []) or []
 
+        # Build working memory context from prior turns (if any)
+        working_memory_block = self._build_working_memory_context(state)
+
         try:
             self.logger.info("Generating analyst question", analyst=analyst.name)
             system_prompt = ANALYST_ASK_QUESTIONS.render(
@@ -200,6 +214,7 @@ class InterviewGraphBuilder:
                 skill_card=self._format_skill_card(skill_card),
                 assigned_plan=self._format_assigned_plan(assigned_plan),
                 domain_memory=self._format_domain_memory(domain_memory),
+                working_memory=working_memory_block,
             )
             started_at = time.perf_counter()
             question = self.llm.invoke([SystemMessage(content=system_prompt)] + state["messages"])
@@ -264,16 +279,16 @@ class InterviewGraphBuilder:
                     freshness_hint=str(policy.get("freshness_hint", "balanced") or "balanced") if policy else "balanced",
                     max_results=10,
                 )
-                raw_results: list[SearchResult] = search_backend.search(tool_query)
+                raw_results: list[SearchDocument] = search_backend.search(tool_query)
                 result_count = len(raw_results)
 
-                # Run pipeline: dedup → clean → relevance → structure → format
-                raw_dicts = [self._search_result_to_dict(r) for r in raw_results]
+                # Run pipeline: canonicalize → clean → dedup → relevance → quality → structure → guard → format
                 pipeline_ctx = ToolContext(
                     target_entity=state.get("company_name", "") or "",
+                    target_focus=str(policy.get("focus", "") or "") if policy else "",
                     source_type=resolved_type,
                 )
-                cleaned, trace = self.pipeline.run_with_trace(raw_dicts, pipeline_ctx)
+                cleaned, trace = self.pipeline.run_with_trace(raw_results, pipeline_ctx)
                 self.logger.info(
                     "Search pipeline completed",
                     provider=provider,
@@ -286,13 +301,13 @@ class InterviewGraphBuilder:
                 formatted_parts: list[str] = []
                 normalized_sources: list[RetrievedSource] = []
                 for doc in cleaned:
-                    formatted_parts.append(doc.get("formatted", str(doc)))
+                    formatted_parts.append(doc.metadata.get("formatted", str(doc)))
                     normalized_sources.append(
                         RetrievedSource(
                             source_id=str(uuid.uuid4()),
-                            title=str(doc.get("title", "") or ""),
-                            url=str(doc.get("url", "") or ""),
-                            snippet=str(doc.get("content", "") or "")[:500],
+                            title=doc.title or "",
+                            url=doc.canonical_url or doc.url or "",
+                            snippet=(doc.clean_content or doc.raw_content or "")[:500],
                             source_type=resolved_type,
                             credibility_note="Pipeline-cleaned; verify in review.",
                         )
@@ -369,18 +384,6 @@ class InterviewGraphBuilder:
             self.logger.error("Error during web search", error=str(e))
             raise ResearchAnalystException("Failed during web search execution", e)
 
-    @staticmethod
-    def _search_result_to_dict(result: SearchResult) -> dict:
-        """Convert a SearchResult to a plain dict for the pipeline."""
-        return {
-            "url": result.url,
-            "title": result.title,
-            "content": result.content,
-            "published_date": result.published_date,
-            "source_type": result.source_type,
-            "raw": result.raw,
-        }
-
     # ----------------------------------------------------------------------
     # Step 3: Expert generates answers
     # ----------------------------------------------------------------------
@@ -393,6 +396,9 @@ class InterviewGraphBuilder:
         skill_card = state.get("skill_card")
         domain_memory = state.get("domain_memory", []) or []
 
+        # Build working memory context from prior turns
+        working_memory_block = self._build_working_memory_context(state)
+
         try:
             self.logger.info("Generating expert answer", analyst=analyst.name)
             system_prompt = GENERATE_ANSWERS.render(
@@ -400,6 +406,7 @@ class InterviewGraphBuilder:
                 context=context,
                 skill_card=self._format_skill_card(skill_card),
                 domain_memory=self._format_domain_memory(domain_memory),
+                working_memory=working_memory_block,
             )
             started_at = time.perf_counter()
             answer = self.llm.invoke([SystemMessage(content=system_prompt)] + state["messages"])
@@ -426,8 +433,154 @@ class InterviewGraphBuilder:
             raise ResearchAnalystException("Failed to generate expert answer", e)
 
     # ----------------------------------------------------------------------
-    # Step 4: Save interview transcript
+    # Step 3b: Compress current turn into structured summary
     # ----------------------------------------------------------------------
+    def _compress(self, state: InterviewState):
+        """Compress the current Q&A round into a CompressedTurn."""
+        try:
+            question, answer = IncrementalCompressor.extract_last_question_and_answer(
+                state["messages"]
+            )
+            context = state.get("context", [])
+            search_summary = IncrementalCompressor.summarise_context(
+                [str(c) for c in (context[-3:] if len(context) > 3 else context)]
+            )
+
+            turn_count = int(state.get("turn_count", 1) or 1)
+            self.logger.info("Compressing interview turn", turn=turn_count)
+
+            compressed = self.compressor.compress_turn(
+                question=question,
+                answer=answer,
+                search_summary=search_summary,
+            )
+
+            # Accumulate compressed history
+            compressed_history: list[dict] = list(state.get("compressed_turns", []) or [])
+            compressed_history.append(compressed.to_dict())
+
+            # Merge all compressed turns into a working memory snapshot
+            all_turns = [CompressedTurn.from_dict(d) for d in compressed_history]
+            merged: MergedMemory = self.compressor.merge_compressed(all_turns)
+
+            self.logger.info(
+                "Turn compressed",
+                turn=turn_count,
+                facts=len(compressed.key_findings),
+                quality=compressed.evidence_quality,
+                total_facts_so_far=merged.total_facts,
+                gaps=merged.knowledge_gaps,
+            )
+
+            return {
+                "compressed_turns": compressed_history,
+                "working_memory": merged.to_dict(),
+                "workflow_events": [
+                    {
+                        "event": "compress.completed",
+                        "payload": {
+                            "turn": turn_count,
+                            "facts_extracted": len(compressed.key_findings),
+                            "total_facts": merged.total_facts,
+                            "knowledge_gaps": merged.knowledge_gaps,
+                        },
+                    }
+                ],
+            }
+
+        except Exception as e:
+            self.logger.error("Error compressing interview turn", error=str(e))
+            # Non-fatal: continue without compression (keep original messages)
+            return {
+                "workflow_events": [
+                    {"event": "compress.failed", "payload": {"error": str(e)}}
+                ],
+            }
+
+    # ----------------------------------------------------------------------
+    # Step 3c: Update structured working memory
+    # ----------------------------------------------------------------------
+    def _update_memory(self, state: InterviewState):
+        """Sync the WorkingMemory from compressed turns (code-only, no LLM)."""
+        try:
+            compressed_history: list[dict] = list(state.get("compressed_turns", []) or [])
+            all_turns = [CompressedTurn.from_dict(d) for d in compressed_history]
+            merged: MergedMemory = self.compressor.merge_compressed(all_turns)
+
+            # Also update the WorkingMemory instance
+            wm = WorkingMemory()
+            for turn in all_turns:
+                wm.ingest_compressed_turn(turn)
+
+            turn_count = int(state.get("turn_count", 1) or 1)
+            self.logger.info(
+                "Working memory updated",
+                turn=turn_count,
+                total_facts=merged.total_facts,
+                gaps=merged.knowledge_gaps,
+                risk_flags=len(merged.risk_flags),
+            )
+
+            return {
+                "working_memory": merged.to_dict(),
+                "workflow_events": [
+                    {
+                        "event": "memory.updated",
+                        "payload": {
+                            "total_facts": merged.total_facts,
+                            "knowledge_gaps": merged.knowledge_gaps,
+                            "risk_flag_count": len(merged.risk_flags),
+                        },
+                    }
+                ],
+            }
+
+        except Exception as e:
+            self.logger.error("Error updating working memory", error=str(e))
+            return {
+                "workflow_events": [
+                    {"event": "memory.update_failed", "payload": {"error": str(e)}}
+                ],
+            }
+
+    # ----------------------------------------------------------------------
+    # Helper: build working memory context block for prompts
+    # ----------------------------------------------------------------------
+    @staticmethod
+    def _build_working_memory_context(state: InterviewState) -> str:
+        """Build a contextual block summarising what has been learned so far.
+
+        Used to inject research progress into the analyst-question and
+        expert-answer prompts so the LLM knows what's already covered.
+        """
+        wm_dict = state.get("working_memory") or {}
+        compressed = state.get("compressed_turns") or []
+
+        if not wm_dict and not compressed:
+            return ""
+
+        parts: list[str] = []
+
+        # Merged memory overview
+        if wm_dict:
+            memory = MergedMemory.from_dict(wm_dict)
+            if memory.total_facts > 0:
+                parts.append(memory.format())
+
+        # Recent compressed turns (last 2)
+        if compressed:
+            recent = compressed[-2:]
+            parts.append("\n## Compressed prior rounds")
+            for i, turn_dict in enumerate(recent):
+                try:
+                    turn = CompressedTurn.from_dict(turn_dict)
+                    turn_num = len(compressed) - len(recent) + i + 1
+                    parts.append(f"\n### Round {turn_num}")
+                    parts.append(turn.format())
+                except Exception:
+                    pass
+
+        return "\n".join(parts) if parts else ""
     def _save_interview(self, state: InterviewState):
         """
         Save the entire conversation between the analyst and expert as a transcript.
@@ -528,6 +681,10 @@ class InterviewGraphBuilder:
     def build(self):
         """
         Construct and compile the LangGraph Interview workflow.
+
+        Flow: ask_question → search_web → generate_answer → compress →
+              update_memory → [conditional] → ask_question (loop) or save_interview →
+              write_section → review_section → END
         """
         try:
             self.logger.info("Building Interview Graph workflow")
@@ -536,6 +693,8 @@ class InterviewGraphBuilder:
             builder.add_node("ask_question", self._generate_question)
             builder.add_node("search_web", self._search_web)
             builder.add_node("generate_answer", self._generate_answer)
+            builder.add_node("compress", self._compress)
+            builder.add_node("update_memory", self._update_memory)
             builder.add_node("save_interview", self._save_interview)
             builder.add_node("write_section", self._write_section)
             builder.add_node("review_section", self._review_section)
@@ -543,13 +702,32 @@ class InterviewGraphBuilder:
             def _should_continue(state: InterviewState):
                 max_turns = int(state.get("max_num_turns", 1) or 1)
                 turn_count = int(state.get("turn_count", 0) or 0)
-                return "ask_question" if turn_count < max_turns else "save_interview"
+
+                # Check hard limit first
+                if turn_count >= max_turns:
+                    return "save_interview"
+
+                # Check knowledge gaps: if coverage is sufficient, stop early
+                wm_dict = state.get("working_memory") or {}
+                if wm_dict:
+                    memory = MergedMemory.from_dict(wm_dict)
+                    if not memory.knowledge_gaps and memory.total_facts >= 5:
+                        self.logger.info(
+                            "Coverage sufficient — stopping early",
+                            turn=turn_count,
+                            total_facts=memory.total_facts,
+                        )
+                        return "save_interview"
+
+                return "ask_question"
 
             builder.add_edge(START, "ask_question")
             builder.add_edge("ask_question", "search_web")
             builder.add_edge("search_web", "generate_answer")
+            builder.add_edge("generate_answer", "compress")
+            builder.add_edge("compress", "update_memory")
             builder.add_conditional_edges(
-                "generate_answer",
+                "update_memory",
                 _should_continue,
                 ["ask_question", "save_interview"],
             )

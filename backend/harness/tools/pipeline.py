@@ -2,16 +2,19 @@
 Tool Pipeline — a composable processing chain for tool results.
 
 Every tool call can (optionally) pass through a pipeline of ``ProcessingStage``
-instances.  Each stage receives the data and a ``ToolContext`` and returns
-transformed data.  This makes search-result cleaning, deduplication, and
-structuring predictable, debuggable, and measurable.
+instances.  Each stage receives ``list[SearchDocument]`` and a ``ToolContext``
+and returns transformed ``list[SearchDocument]``.  This makes search-result
+cleaning, deduplication, and structuring predictable, debuggable, and measurable.
 """
 from __future__ import annotations
 
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from harness.tools.search.base import SearchDocument
 
 
 # ---------------------------------------------------------------------------
@@ -39,8 +42,11 @@ class ToolContext:
 class ProcessingStage(ABC):
     """One step in a tool pipeline.
 
-    Subclasses implement ``__call__`` which receives the data (list of SearchResult
-    or list of dict) and returns processed data of the same shape.
+    Subclasses implement ``__call__`` which receives ``list[SearchDocument]``
+    and returns processed ``list[SearchDocument]``.
+
+    Each stage must decide its own error strategy (fail-open or fail-closed)
+    and document it in the class docstring.
     """
 
     @property
@@ -50,8 +56,10 @@ class ProcessingStage(ABC):
         ...
 
     @abstractmethod
-    def __call__(self, data: list[Any], ctx: ToolContext) -> list[Any]:
-        """Transform *data*.  Must return a list of the same element type."""
+    def __call__(
+        self, data: list[SearchDocument], ctx: ToolContext
+    ) -> list[SearchDocument]:
+        """Transform *data*.  Must return a list of ``SearchDocument``."""
         ...
 
 
@@ -61,11 +69,31 @@ class ProcessingStage(ABC):
 
 @dataclass
 class StageTrace:
+    """Per-stage metrics collected during a pipeline run.
+
+    ``input_count`` / ``output_count`` count only **non-dropped** documents
+    entering / leaving the stage.
+
+    ``dropped_count`` and ``warning_count`` are **incremental** — only new
+    drops and warnings introduced by this stage, not cumulative totals.
+    """
+
     stage: str
     duration_ms: int
     input_count: int
+    """Non-dropped documents entering this stage."""
+
     output_count: int
+    """Non-dropped documents leaving this stage."""
+
     reduction_pct: float = 0.0
+    """Percentage of non-dropped docs removed this stage."""
+
+    warning_count: int = 0
+    """New warnings added by this stage (incremental)."""
+
+    dropped_count: int = 0
+    """New documents marked as dropped by this stage (incremental)."""
 
 
 class ToolPipeline:
@@ -73,14 +101,18 @@ class ToolPipeline:
 
     Usage::
 
-        pipeline = ToolPipeline([DeduplicateStage(), CleanTextStage(), ...])
-        cleaned = pipeline.run(raw_results, ctx)
+        pipeline = ToolPipeline([CanonicalizeURLStage(), CleanTextStage(), ...])
+        cleaned, trace = pipeline.run_with_trace(raw_docs, ctx)
     """
 
     def __init__(self, stages: list[ProcessingStage]):
         self.stages = stages
 
-    def run(self, data: list[Any], ctx: ToolContext | None = None) -> list[Any]:
+    def run(
+        self,
+        data: list[SearchDocument],
+        ctx: ToolContext | None = None,
+    ) -> list[SearchDocument]:
         """Run *data* through every stage sequentially, returning the final result."""
         ctx = ctx or ToolContext()
         for stage in self.stages:
@@ -88,25 +120,50 @@ class ToolPipeline:
         return data
 
     def run_with_trace(
-        self, data: list[Any], ctx: ToolContext | None = None
-    ) -> tuple[list[Any], list[StageTrace]]:
+        self,
+        data: list[SearchDocument],
+        ctx: ToolContext | None = None,
+    ) -> tuple[list[SearchDocument], list[StageTrace]]:
         """Run and return (result, per-stage timing/count traces)."""
         ctx = ctx or ToolContext()
         traces: list[StageTrace] = []
+
+        # Snapshot cumulative state before first stage
+        prev_warnings = sum(len(d.warnings) for d in data)
+        prev_dropped = sum(1 for d in data if d.dropped_reason)
+
         for stage in self.stages:
+            # Count non-dropped docs entering
+            input_active = sum(1 for d in data if not d.dropped_reason)
+
             started = time.perf_counter()
-            before = len(data)
             data = stage(data, ctx)
-            after = len(data)
             elapsed_ms = int((time.perf_counter() - started) * 1000)
-            reduction = round((1 - after / before) * 100, 1) if before else 0.0
+
+            # Count non-dropped docs leaving
+            output_active = sum(1 for d in data if not d.dropped_reason)
+
+            # Incremental counts (this stage only, not cumulative)
+            curr_warnings = sum(len(d.warnings) for d in data)
+            curr_dropped = sum(1 for d in data if d.dropped_reason)
+            stage_warnings = curr_warnings - prev_warnings
+            stage_dropped = curr_dropped - prev_dropped
+
+            reduction = round((1 - output_active / input_active) * 100, 1) if input_active else 0.0
+
             traces.append(
                 StageTrace(
                     stage=stage.name,
                     duration_ms=elapsed_ms,
-                    input_count=before,
-                    output_count=after,
+                    input_count=input_active,
+                    output_count=output_active,
                     reduction_pct=reduction,
+                    warning_count=stage_warnings,
+                    dropped_count=stage_dropped,
                 )
             )
+
+            prev_warnings = curr_warnings
+            prev_dropped = curr_dropped
+
         return data, traces

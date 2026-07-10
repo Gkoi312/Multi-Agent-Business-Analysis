@@ -12,7 +12,7 @@ import urllib.request
 import urllib.parse
 from typing import Any
 
-from harness.tools.search.base import SearchResult, SearchQuery, SearchTool
+from harness.tools.search.base import SearchDocument, SearchQuery, SearchTool
 
 
 class BraveSearchAdapter(SearchTool):
@@ -25,7 +25,7 @@ class BraveSearchAdapter(SearchTool):
         self._api_key = api_key or os.getenv("BRAVE_SEARCH_API_KEY", "")
 
     # ------------------------------------------------------------------
-    def search(self, query: SearchQuery, **kwargs) -> list[SearchResult]:
+    def search(self, query: SearchQuery, **kwargs) -> list[SearchDocument]:
         if not self._api_key:
             return []  # not configured → silently return empty (graceful degradation)
 
@@ -55,18 +55,20 @@ class BraveSearchAdapter(SearchTool):
         except Exception:
             return []
 
-        results: list[SearchResult] = []
+        results: list[SearchDocument] = []
         web_results = data.get("web", {}).get("results", []) if isinstance(data, dict) else []
         for item in web_results:
             if not isinstance(item, dict):
                 continue
             results.append(
-                SearchResult(
+                SearchDocument(
                     url=str(item.get("url", "") or ""),
+                    canonical_url=str(item.get("url", "") or ""),
                     title=str(item.get("title", "") or ""),
-                    content=str(item.get("description", "") or ""),
+                    raw_content=str(item.get("description", "") or ""),
                     published_date=str(item.get("age", "") or ""),
                     source_type=query.source_type,
+                    provider=self.name,
                     raw=item,
                 )
             )
