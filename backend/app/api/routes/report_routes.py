@@ -267,7 +267,7 @@ async def create_report(request: Request, payload: DueDiligenceRequest):
     )
 
     task = TASK_RUNTIME.create_task(
-        task_type="due_diligence",
+        task_type=payload.task_type or "due_diligence",
         owner=username,
         params={
             "company_name": payload.company_name,
@@ -314,6 +314,17 @@ async def get_task_events(request: Request, task_id: str, limit: int = 50):
         task_id=task_id,
         events=TASK_RUNTIME.list_events(task_id, limit),
     )
+
+
+@router.get("/tasks/{task_id}/metrics")
+async def get_task_metrics(request: Request, task_id: str):
+    username = _require_current_user(request)
+    _require_owned_task(task_id, username)
+    from harness.observability.metrics import get_ledger
+    from app.api.models.request_models import MetricsResponse
+    ledger = get_ledger(task_id)
+    summary = ledger.summary()
+    return MetricsResponse(**summary)
 
 
 @router.post("/tasks/{task_id}/feedback", response_model=TaskActionResponse)

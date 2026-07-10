@@ -9,6 +9,15 @@ function fileNameFromPath(path: string) {
   return path.split(/[/\\]/).pop() ?? path;
 }
 
+function getReviewLabel(status: string) {
+  const labels: Record<string, string> = {
+    pass: "Passed",
+    needs_revision: "Needs revision",
+    skipped: "Skipped",
+  };
+  return labels[status] ?? status;
+}
+
 export function TaskReportPage() {
   const { taskId = "" } = useParams();
   const [task, setTask] = useState<Task | null>(null);
@@ -71,10 +80,18 @@ export function TaskReportPage() {
           <>
             <div className="section-header">
               <div>
-                <h1>Due diligence report · {task.company_name}</h1>
-                <p className="muted">When the task completes, review risk counts and download files here.</p>
+                <h1>Report · {task.company_name}</h1>
+                <p className="muted">
+                  {task.task_type !== "due_diligence"
+                    ? `Task type: ${task.task_type} · `
+                    : ""}
+                  {task.analysts_preview.length} analyst(s) · v{task.analyst_version}
+                </p>
               </div>
               <div className="button-row">
+                <Link className="secondary-button link-button" to={`/tasks/${task.id}`}>
+                  Task details
+                </Link>
                 <Link className="secondary-button link-button" to="/tasks">
                   All tasks
                 </Link>
@@ -93,6 +110,23 @@ export function TaskReportPage() {
 
             {task.status === "completed" ? (
               <>
+                {/* Review status */}
+                {task.report_review_status ? (
+                  <section className="subsection">
+                    <h2>Quality review</h2>
+                    <p>
+                      Status:{" "}
+                      <span className={`status-pill status-${task.report_review_status === "pass" ? "completed" : "failed"}`}>
+                        {getReviewLabel(task.report_review_status)}
+                      </span>
+                    </p>
+                    {task.report_review_summary ? (
+                      <p className="muted">{task.report_review_summary}</p>
+                    ) : null}
+                  </section>
+                ) : null}
+
+                {/* Risk distribution */}
                 <section className="subsection">
                   <h2>Risk distribution</h2>
                   <p className="muted">
@@ -138,6 +172,7 @@ export function TaskReportPage() {
                   </div>
                 </section>
 
+                {/* Final recommendations */}
                 <section className="subsection">
                   <h2>Final recommendations (snippet)</h2>
                   {task.final_recommendation ? (
@@ -147,6 +182,7 @@ export function TaskReportPage() {
                   )}
                 </section>
 
+                {/* Downloads */}
                 <section className="subsection">
                   <h2>Downloads</h2>
                   {!downloadLinks.length ? (

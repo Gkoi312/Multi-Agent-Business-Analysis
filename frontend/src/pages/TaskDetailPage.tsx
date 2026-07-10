@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../api";
 import { RequireAuth } from "../components/RequireAuth";
-import type { Task, TaskEvent } from "../types";
+import type { Task, TaskEvent, TaskMetrics } from "../types";
 
 const ACTIVE_STATUSES = new Set(["pending", "running_generation", "running_feedback"]);
 
@@ -28,8 +28,27 @@ function getEventLabel(event: string) {
     "task.interrupted": "Task interrupted",
     "feedback.submitted": "Feedback submitted",
     "analyst.regenerated": "Analysts regenerated",
+    "workflow.configured": "Workflow configured",
+    "workflow.skills.assembled": "Skills assembled",
+    "workflow.report.status": "Report status updated",
+    "company_type.classified": "Company type classified",
+    "skills.assembled": "Skills assembled",
+    "planner.completed": "Research plan ready",
+    "planner.skipped": "Planner skipped",
+    "review.report.completed": "Report review completed",
+    "review.report.skipped": "Report review skipped",
+    "task.evaluation.completed": "Evaluation completed",
   };
   return eventLabels[event] ?? event;
+}
+
+function getTaskTypeLabel(taskType: string) {
+  const labels: Record<string, string> = {
+    due_diligence: "Due Diligence",
+    stock_analysis: "Stock Analysis",
+    legal_review: "Legal Review",
+  };
+  return labels[taskType] ?? taskType;
 }
 
 export function TaskDetailPage() {
@@ -38,6 +57,7 @@ export function TaskDetailPage() {
   const { taskId = "" } = useParams();
   const [task, setTask] = useState<Task | null>(null);
   const [events, setEvents] = useState<TaskEvent[]>([]);
+  const [metrics, setMetrics] = useState<TaskMetrics | null>(null);
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -60,13 +80,15 @@ export function TaskDetailPage() {
 
     const load = async () => {
       try {
-        const [nextTask, nextEvents] = await Promise.all([
+        const [nextTask, nextEvents, nextMetrics] = await Promise.all([
           api.getTask(taskId),
           api.getTaskEvents(taskId),
+          api.getTaskMetrics(taskId),
         ]);
         if (!cancelled) {
           setTask(nextTask);
           setEvents(nextEvents.events);
+          if (nextMetrics) setMetrics(nextMetrics);
           setError("");
         }
       } catch (nextError) {
@@ -152,6 +174,10 @@ export function TaskDetailPage() {
             <div className="section-header">
               <div>
                 <h1>{task.company_name}</h1>
+                <p className="muted">
+                  {getTaskTypeLabel(task.task_type)} · v{task.analyst_version}
+                  {task.owner ? ` · ${task.owner}` : ""}
+                </p>
               </div>
               <div className="button-row">
                 <button
@@ -184,6 +210,44 @@ export function TaskDetailPage() {
               </div>
             </div>
 
+            {/* Task metadata */}
+            <section className="subsection">
+              <h2>Task info</h2>
+              <div className="task-meta-grid">
+                <div>
+                  <strong>Type:</strong> {getTaskTypeLabel(task.task_type)}
+                </div>
+                <div>
+                  <strong>Industry:</strong> {task.industry_pack || "—"}
+                </div>
+                <div>
+                  <strong>Max analysts:</strong> {task.max_analysts}
+                </div>
+                <div>
+                  <strong>Focus:</strong> {task.focus || "Default"}
+                </div>
+                {task.target_role ? (
+                  <div>
+                    <strong>Target role:</strong> {task.target_role}
+                  </div>
+                ) : null}
+                {task.report_review_status ? (
+                  <div>
+                    <strong>Review:</strong>{" "}
+                    <span className={`status-pill status-${task.report_review_status === "pass" ? "completed" : "failed"}`}>
+                      {task.report_review_status}
+                    </span>
+                  </div>
+                ) : null}
+              </div>
+              {task.report_review_summary ? (
+                <p className="muted" style={{ marginTop: "0.5rem" }}>
+                  {task.report_review_summary}
+                </p>
+              ) : null}
+            </section>
+
+            {/* Analyst preview */}
             <section className="subsection">
               <h2>Analyst preview</h2>
               {!task.analysts_preview.length ? <p className="muted">No analyst preview yet.</p> : null}
@@ -203,6 +267,7 @@ export function TaskDetailPage() {
               </div>
             </section>
 
+            {/* Feedback section */}
             {task.status === "awaiting_feedback" ? (
               <section className="subsection">
                 <h2>Human feedback · analysts</h2>
@@ -244,10 +309,14 @@ export function TaskDetailPage() {
               </section>
             ) : null}
 
+            {/* Retry section */}
             {task.status === "failed" ? (
               <section className="subsection">
                 <h2>Task failed</h2>
                 {task.error ? <p className="error-text">{task.error}</p> : null}
+                {task.failed_stage ? (
+                  <p className="muted">Failed at stage: {task.failed_stage}</p>
+                ) : null}
                 <div className="button-row">
                   <button
                     className="secondary-button"
@@ -261,6 +330,37 @@ export function TaskDetailPage() {
               </section>
             ) : null}
 
+            {/* Metrics section */}
+            {metrics ? (
+              <section className="subsection">
+                <h2>Token usage &amp; cost</h2>
+                <div className="task-meta-grid">
+                  <div><strong>LLM calls:</strong> {metrics.call_count}</div>
+                  <div><strong>Prompt tokens:</strong> {metrics.total_prompt_tokens.toLocaleString()}</div>
+                  <div><strong>Completion tokens:</strong> {metrics.total_completion_tokens.toLocaleString()}</div>
+                  <div><strong>Total tokens:</strong> {metrics.total_tokens.toLocaleString()}</div>
+                  <div><strong>Total latency:</strong> {(metrics.total_latency_ms / 1000).toFixed(1)}s</div>
+                  <div>
+                    <strong>Est. cost:</strong> ${metrics.estimated_cost_usd.toFixed(4)}
+                    {metrics.over_budget ? <span className="error-text"> ⚠️ Over budget</span> : null}
+                  </div>
+                </div>
+                {Object.keys(metrics.by_node).length > 0 ? (
+                  <details style={{ marginTop: "0.75rem" }}>
+                    <summary style={{ cursor: "pointer", fontWeight: 600 }}>Per-node breakdown</summary>
+                    <div style={{ marginTop: "0.5rem" }}>
+                      {Object.entries(metrics.by_node).map(([node, stats]) => (
+                        <div key={node} style={{ marginBottom: "0.4rem", fontSize: "0.9rem" }}>
+                          <strong>{node}</strong>: {stats.calls} call(s), {stats.total_tokens.toLocaleString()} tokens, ${stats.estimated_cost.toFixed(4)}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                ) : null}
+              </section>
+            ) : null}
+
+            {/* Events */}
             <section className="subsection">
               <h2>Events</h2>
               {!events.length ? <p className="muted">No events yet.</p> : null}

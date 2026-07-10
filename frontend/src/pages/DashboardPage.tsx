@@ -4,12 +4,20 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { RequireAuth } from "../components/RequireAuth";
 
+const TASK_TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: "due_diligence", label: "Due Diligence" },
+  { value: "stock_analysis", label: "Stock Analysis" },
+  { value: "legal_review", label: "Legal Review" },
+];
+
 export function DashboardPage() {
   const navigate = useNavigate();
   const [companyName, setCompanyName] = useState("");
   const [focus, setFocus] = useState("");
   const [targetRole, setTargetRole] = useState("");
   const [industryPack, setIndustryPack] = useState("");
+  const [taskType, setTaskType] = useState("due_diligence");
+  const [maxAnalysts, setMaxAnalysts] = useState(3);
   const [skillPacks, setSkillPacks] = useState<string[]>([]);
   const [packsLoading, setPacksLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -48,8 +56,9 @@ export function DashboardPage() {
         company_name: companyName,
         focus,
         target_role: targetRole,
-        max_analysts: 3,
+        max_analysts: maxAnalysts,
         industry_pack: industryPack,
+        task_type: taskType,
       });
       navigate(`/tasks/${task.id}`);
     } catch (nextError) {
@@ -66,10 +75,11 @@ export function DashboardPage() {
       <section className="panel">
         <div className="section-header">
           <div>
-            <h1>Create due diligence task</h1>
+            <h1>Create research task</h1>
             <p className="muted">
-              The run starts after you submit. Pick the company type (skill pack) from the list—options match
-              subfolders under <code>backend/skills</code> that contain <code>skill_pack.yaml</code>.
+              The run starts after you submit. Pick a task type, company type (skill pack),
+              and configure analysts. Skill packs match subfolders under{" "}
+              <code>backend/skills</code> that contain <code>skill_pack.yaml</code>.
             </p>
           </div>
           <div className="button-row">
@@ -79,6 +89,19 @@ export function DashboardPage() {
           </div>
         </div>
         <form className="form-grid" onSubmit={handleSubmit}>
+          <label>
+            Task type
+            <select
+              onChange={(event) => setTaskType(event.target.value)}
+              value={taskType}
+            >
+              {TASK_TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <label>
             Company name
             <input
@@ -119,6 +142,16 @@ export function DashboardPage() {
                 </option>
               ))}
             </select>
+          </label>
+          <label>
+            Max analysts: {maxAnalysts}
+            <input
+              max={8}
+              min={1}
+              onChange={(event) => setMaxAnalysts(Number(event.target.value))}
+              type="range"
+              value={maxAnalysts}
+            />
           </label>
           {noPacksConfigured ? (
             <p className="error-text">

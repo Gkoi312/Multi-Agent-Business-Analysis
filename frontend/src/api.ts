@@ -1,4 +1,4 @@
-import type { Task, TaskEvent, User } from "./types";
+import type { Task, TaskEvent, TaskMetrics, User } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api";
 
@@ -63,6 +63,7 @@ export const api = {
     target_role: string;
     max_analysts: number;
     industry_pack: string;
+    task_type?: string;
   }) =>
     request<{ task: Task }>("/reports", {
       method: "POST",
@@ -72,6 +73,8 @@ export const api = {
   getTask: (taskId: string) => request<Task>(`/tasks/${taskId}`),
   getTaskEvents: (taskId: string) =>
     request<{ task_id: string; events: TaskEvent[] }>(`/tasks/${taskId}/events`),
+  getTaskMetrics: (taskId: string) =>
+    request<TaskMetrics>(`/tasks/${taskId}/metrics`).catch(() => null),
   submitFeedback: (taskId: string, payload: { feedback: string }) =>
     request<{ task: Task }>(`/tasks/${taskId}/feedback`, {
       method: "POST",

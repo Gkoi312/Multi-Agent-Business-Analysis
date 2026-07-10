@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 class LoginRequest(BaseModel):
     username: str = Field(..., description="Username for login")
@@ -19,6 +19,10 @@ class DueDiligenceRequest(BaseModel):
         ...,
         min_length=1,
         description="Skill folder under backend/skills (must contain skill_pack.yaml or .json)",
+    )
+    task_type: str = Field(
+        default="due_diligence",
+        description="Task type slug — maps to a domain adapter",
     )
 
 
@@ -52,11 +56,16 @@ class RiskSummary(BaseModel):
 
 
 class TaskResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")  # forward-compat with harness-level fields
+
     id: str
+    task_type: str = "due_diligence"
+    owner: str = ""
     company_name: str
     focus: str = ""
     target_role: str = ""
     industry_pack: str = ""
+    max_analysts: int = 3
     status: str
     thread_id: str = ""
     analysts_preview: list[AnalystPreview] = Field(default_factory=list)
@@ -68,6 +77,8 @@ class TaskResponse(BaseModel):
     last_feedback: str = ""
     risk_summary: RiskSummary = Field(default_factory=RiskSummary)
     final_recommendation: str = ""
+    report_review_status: str = ""
+    report_review_summary: str = ""
     created_at: float = 0
     updated_at: float = 0
 
@@ -105,3 +116,18 @@ class HealthResponse(BaseModel):
     status: Literal["healthy"]
     service: str
     timestamp: str
+
+
+class MetricsResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    call_count: int = 0
+    total_prompt_tokens: int = 0
+    total_completion_tokens: int = 0
+    total_tokens: int = 0
+    total_latency_ms: int = 0
+    estimated_cost_usd: float = 0.0
+    budget_cap_usd: float | None = None
+    budget_remaining_usd: float | None = None
+    over_budget: bool = False
+    by_node: dict = Field(default_factory=dict)
+    by_model: dict = Field(default_factory=dict)
