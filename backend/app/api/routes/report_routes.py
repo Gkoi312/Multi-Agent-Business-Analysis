@@ -18,7 +18,7 @@ from app.api.models.request_models import (
 )
 from app.api.services.report_service import ReportService
 from app.api.services.session_store import SESSION_STORE
-from app.api.services.task_runtime import TASK_RUNTIME
+from harness.observability.task_runtime import TASK_RUNTIME
 from app.services.skill_registry import SkillRegistry
 from app.config import (
     SESSION_COOKIE_MAX_AGE,
@@ -267,12 +267,15 @@ async def create_report(request: Request, payload: DueDiligenceRequest):
     )
 
     task = TASK_RUNTIME.create_task(
-        company_name=payload.company_name,
+        task_type="due_diligence",
         owner=username,
-        focus=payload.focus,
-        target_role=payload.target_role,
-        max_analysts=payload.max_analysts,
-        industry_pack=pack,
+        params={
+            "company_name": payload.company_name,
+            "focus": payload.focus,
+            "target_role": payload.target_role,
+            "max_analysts": payload.max_analysts,
+            "industry_pack": pack,
+        },
     )
     TASK_RUNTIME.emit_event(
         task["id"],

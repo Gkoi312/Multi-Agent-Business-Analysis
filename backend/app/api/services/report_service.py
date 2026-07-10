@@ -4,7 +4,7 @@ import re
 import time
 from fastapi.responses import FileResponse
 from app.utils.model_loader import ModelLoader
-from app.workflows.report_generator_workflow import AutonomousReportGenerator
+from domains.due_diligence.graph import AutonomousReportGenerator
 from app.logger import GLOBAL_LOGGER
 from app.exception.custom_exception import ResearchAnalystException
 from app.config import GENERATED_REPORT_DIR
