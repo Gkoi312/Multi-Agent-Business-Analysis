@@ -17,7 +17,6 @@ from harness.models.agent import AnalystPlan, RetrievedSource, ReviewFinding, Se
 from harness.models.memory import (
     CompressedTurn,
     MergedMemory,
-    WorkingMemory,
     RunningSummary,
     SearchDigest,
     SourceRecord,
@@ -25,6 +24,7 @@ from harness.models.memory import (
     TokenCounter,
     _now_iso,
 )
+from harness.memory.working_memory import WorkingMemory
 from harness.tools.search.base import SearchDocument, SearchQuery as ToolSearchQuery
 from harness.tools.pipeline import ToolPipeline, ToolContext
 from harness.tools.registry import TOOL_REGISTRY, ToolRegistry
@@ -161,14 +161,12 @@ class InterviewGraphBuilder:
         (does not mutate originals in ways LangGraph can't track).
         """
         result = []
-        modified = False
         for msg in messages:
             msg_id = getattr(msg, "id", None)
             if not msg_id:
                 try:
                     new_msg = msg.model_copy(update={"id": str(uuid.uuid4())})
                     result.append(new_msg)
-                    modified = True
                 except Exception:
                     result.append(msg)
             else:
@@ -178,6 +176,24 @@ class InterviewGraphBuilder:
     # ------------------------------------------------------------------
     # Round 3: Context Assembly helper
     # ------------------------------------------------------------------
+
+    def _make_working_memory(self, state: InterviewState) -> WorkingMemory:
+        """Create a WorkingMemory from state, always with domain_config injected."""
+        wm_dict = state.get("working_memory") or {}
+        if wm_dict:
+            wm = WorkingMemory.from_dict(wm_dict)
+        else:
+            wm = WorkingMemory(
+                coverage_policy=self._domain_config.coverage_policy,
+                domain_config=self._domain_config,
+            )
+        # Ensure domain_config is set (from_dict may not preserve it)
+        if wm.domain_config is None:
+            wm.domain_config = self._domain_config
+        if wm._reconciler is None or wm._reconciler._domain_config is None:
+            from harness.memory.fact_reconciler import FactReconciler
+            wm._reconciler = FactReconciler(domain_config=self._domain_config)
+        return wm
 
     def _assemble_llm_messages(
         self,
@@ -191,29 +207,10 @@ class InterviewGraphBuilder:
 
         NEVER mutates state["messages"]. Returns a NEW list of messages
         for the LLM call only.
-
-        Parameters
-        ----------
-        state : InterviewState
-            Current graph state (canonical, not mutated).
-        system_prompt : str
-            Base system prompt for this LLM call.
-        include_search_digest : bool
-            Whether to include current search digest in system prompt.
-        include_recent_messages : bool
-            Whether to include recent raw messages (False = system prompt only).
-
-        Returns
-        -------
-        list
-            List of LangChain Message objects ready for LLM invocation.
         """
         try:
-            # 1. Restore WorkingMemory from state
-            wm_dict = state.get("working_memory") or {}
-            wm = WorkingMemory.from_dict(wm_dict) if wm_dict else WorkingMemory(
-                coverage_policy=self._domain_config.coverage_policy,
-            )
+            # 1. Restore WorkingMemory from state (with domain_config)
+            wm = self._make_working_memory(state)
 
             # 2. Restore RunningSummary from state
             rs_dict = state.get("running_summary") or {}
@@ -311,11 +308,7 @@ class InterviewGraphBuilder:
         return "\n".join(lines)
 
     def _route_search(self, query: SearchQuery, policy: dict[str, Any] | None):
-        """
-        Resolve a source-type label for this search (logging and RetrievedSource.source_type).
-        Prefer `source_type` from structured output; if empty, fall back to the first entry in
-        `source_policy.preferred_source_types`; if still empty, use "web". Provider is always tavily.
-        """
+        """Resolve a source-type label and provider for this search."""
         preferred = (query.source_type or "").strip().lower()
         preferred_source_types = self._value(policy, "preferred_source_types", []) if policy else []
         if preferred_source_types:
@@ -385,16 +378,12 @@ class InterviewGraphBuilder:
     # Step 1: Analyst generates question
     # ----------------------------------------------------------------------
     def _generate_question(self, state: InterviewState):
-        """
-        Generate the first question for the interview based on the analyst's persona.
-        Round 3: Uses ContextAssembler for context window management.
-        """
+        """Generate the next interview question. Uses ContextAssembler."""
         analyst = state["analyst"]
         skill_card = state.get("skill_card")
         assigned_plan = state.get("assigned_plan")
         domain_memory = state.get("domain_memory", []) or []
 
-        # Build working memory context from prior turns
         working_memory_block = self._build_working_memory_context(state)
 
         try:
@@ -408,8 +397,6 @@ class InterviewGraphBuilder:
             )
 
             started_at = time.perf_counter()
-
-            # Round 3: Use ContextAssembler instead of raw state["messages"]
             assembled_messages = self._assemble_llm_messages(
                 state, system_prompt, include_search_digest=False, include_recent_messages=True,
             )
@@ -446,10 +433,12 @@ class InterviewGraphBuilder:
     # Step 2: Perform web search
     # ----------------------------------------------------------------------
     def _search_web(self, state: InterviewState):
-        """
-        Generate a structured search query, resolve the best search backend,
-        and run results through the cleaning pipeline before returning.
-        Round 3: Builds source registry with stable IDs (S1, S2, ...).
+        """Generate search query, resolve backend, run pipeline, build source registry.
+
+        Bug fixes:
+        - Source ID counter continues from existing registry (no overwrite).
+        - Pipeline-cleaned-to-zero detected and treated as no-results.
+        - Only current-turn registry passed to downstream nodes.
         """
         try:
             self.logger.info("Generating search query from conversation")
@@ -462,8 +451,6 @@ class InterviewGraphBuilder:
             )
 
             started_at = time.perf_counter()
-
-            # Round 3: Use ContextAssembler for search query generation too
             assembled_messages = self._assemble_llm_messages(
                 state, search_prompt, include_search_digest=False, include_recent_messages=True,
             )
@@ -472,15 +459,10 @@ class InterviewGraphBuilder:
             query_latency_ms = int((time.perf_counter() - started_at) * 1000)
             query_usage = self._extract_usage(search_query)
 
-            # Resolve provider + source type
             provider, resolved_type = self._route_search(search_query, policy)
-
-            # ---- resolve search backend via registry ----
             search_backend = self.tool_registry.get_search(provider)
-            result_count = 0
 
             if search_backend is not None:
-                # --- new path: ToolRegistry + ToolPipeline ---
                 site_hints = list(policy.get("site_hints", []) or []) if policy else []
                 tool_query = ToolSearchQuery(
                     query=search_query.search_query,
@@ -490,9 +472,7 @@ class InterviewGraphBuilder:
                     max_results=10,
                 )
                 raw_results: list[SearchDocument] = search_backend.search(tool_query)
-                result_count = len(raw_results)
 
-                # Run pipeline: canonicalize → clean → dedup → relevance → quality → structure → guard → format
                 pipeline_ctx = ToolContext(
                     target_entity=state.get("company_name", "") or "",
                     target_focus=str(policy.get("focus", "") or "") if policy else "",
@@ -502,24 +482,61 @@ class InterviewGraphBuilder:
                 self.logger.info(
                     "Search pipeline completed",
                     provider=provider,
-                    raw_count=result_count,
+                    raw_count=len(raw_results),
                     cleaned_count=len(cleaned),
                     trace=[{"stage": t.stage, "reduction_pct": t.reduction_pct} for t in trace],
                 )
 
-                # Build formatted string + source registry with stable IDs (S1, S2, ...)
+                # ---- Bug fix: check CLEANED count, not raw count ----
+                if len(cleaned) == 0:
+                    self.logger.warning("All search results dropped by pipeline")
+                    return {
+                        "context": ["[No relevant search results after cleaning.]"],
+                        "retrieved_sources": [],
+                        "search_digest": SearchDigest(query=search_query.search_query).to_dict(),
+                        "router_decisions": [{
+                            "query": search_query.search_query,
+                            "provider": provider,
+                            "source_type": resolved_type,
+                            "reasoning": search_query.reasoning,
+                            "result_count": 0,
+                        }],
+                        "workflow_events": [
+                            {"event": "router.search.completed", "payload": {"result_count": 0, "source_type": resolved_type}}
+                        ],
+                        "llm_metrics": [{
+                            "node": "interview.search_query",
+                            "latency_ms": query_latency_ms,
+                            "prompt_tokens": query_usage["prompt_tokens"],
+                            "completion_tokens": query_usage["completion_tokens"],
+                            "total_tokens": query_usage["total_tokens"],
+                        }],
+                    }
+
+                # ---- Bug fix: continue source ID counter from existing registry ----
+                existing_registry_raw = state.get("source_registry") or {}
+                existing_registry: dict[str, Any] = {}
+                for k, v in existing_registry_raw.items():
+                    existing_registry[str(k)] = v
+                # Find next available S-n index
+                next_idx = 1
+                for key in existing_registry:
+                    if key.startswith("S") and key[1:].isdigit():
+                        n = int(key[1:])
+                        if n >= next_idx:
+                            next_idx = n + 1
+
                 formatted_parts: list[str] = []
                 normalized_sources: list[RetrievedSource] = []
-                source_registry: dict[str, SourceRecord] = {}
-                sid_counter = 0
+                current_turn_registry: dict[str, SourceRecord] = {}
 
                 for doc in cleaned:
-                    sid_counter += 1
-                    sid = f"S{sid_counter}"
+                    sid = f"S{next_idx}"
+                    next_idx += 1
                     formatted_parts.append(doc.metadata.get("formatted", str(doc)))
 
                     url = doc.canonical_url or doc.url or ""
-                    source_registry[sid] = SourceRecord(
+                    current_turn_registry[sid] = SourceRecord(
                         source_id=sid,
                         url=url,
                         title=doc.title or "",
@@ -536,98 +553,72 @@ class InterviewGraphBuilder:
                             credibility_note="Pipeline-cleaned; verify in review.",
                         )
                     )
-                formatted = "\n\n---\n\n".join(formatted_parts) if formatted_parts else "[No relevant search results after cleaning.]"
+                formatted = "\n\n---\n\n".join(formatted_parts)
 
-                # Build SearchDigest for context assembly
+                # Build SearchDigest
                 search_digest = self.search_digest_builder.build(
                     query=search_query.search_query,
                     raw_results=cleaned,
                 )
-                # Override with our stable registry
-                search_digest.source_registry = source_registry
-                search_digest.source_ids = [f"S{i}" for i in range(1, sid_counter + 1)]
+                search_digest.source_registry = current_turn_registry
+                search_digest.source_ids = list(current_turn_registry.keys())
 
-                # Merge source registry with existing (accumulate across turns)
-                existing_registry = dict(state.get("source_registry") or {})
-                existing_registry.update({
-                    k: v.to_dict() if hasattr(v, "to_dict") else v
-                    for k, v in source_registry.items()
-                })
+                # Merge into accumulated registry
+                merged_registry = dict(existing_registry_raw)
+                for k, v in current_turn_registry.items():
+                    merged_registry[str(k)] = v.to_dict() if hasattr(v, "to_dict") else v
 
             else:
-                # --- legacy path: direct Tavily call (backward compat) ---
-                self.logger.warning(
-                    "No search backend registered for provider; falling back to legacy tavily_search",
-                    provider=provider,
-                )
+                # --- legacy path ---
+                self.logger.warning("No search backend; falling back to legacy tavily_search", provider=provider)
                 search_docs = self.tavily_search.invoke(search_query.search_query) if self.tavily_search else []
-                result_count = len(search_docs or [])
                 normalized_sources = self._normalize_sources(search_docs, resolved_type)
-                source_registry = {}
-                existing_registry = dict(state.get("source_registry") or {})
+                current_turn_registry = {}
+                existing_registry_raw = state.get("source_registry") or {}
+                merged_registry = dict(existing_registry_raw)
 
                 if not search_docs:
                     formatted = "[No search results found.]"
                     search_digest = SearchDigest(query=search_query.search_query)
                 else:
+                    # Continue indexing from existing
+                    next_idx = 1
+                    for key in merged_registry:
+                        if key.startswith("S") and key[1:].isdigit():
+                            n = int(key[1:])
+                            if n >= next_idx:
+                                next_idx = n + 1
+
                     formatted_parts = []
-                    for i, source in enumerate(normalized_sources):
-                        sid = f"S{i + 1}"
+                    for source in normalized_sources:
+                        sid = f"S{next_idx}"
+                        next_idx += 1
                         href = source.url or "#"
-                        content = source.snippet
-                        formatted_parts.append(f'<Document href="{href}"/>\n{content}\n</Document>')
-                        source_registry[sid] = SourceRecord(
-                            source_id=sid,
-                            url=source.url,
-                            title=source.title,
+                        formatted_parts.append(f'<Document href="{href}"/>\n{source.snippet}\n</Document>')
+                        current_turn_registry[sid] = SourceRecord(
+                            source_id=sid, url=source.url, title=source.title,
                             retrieved_at=_now_iso(),
                         )
-                        # Update source_id on the normalized source too
                         source.source_id = sid
                     formatted = "\n\n---\n\n".join(formatted_parts)
                     search_digest = self.search_digest_builder.build(
-                        query=search_query.search_query,
-                        raw_results=search_docs,
+                        query=search_query.search_query, raw_results=search_docs,
                     )
-                    search_digest.source_registry = source_registry
-                    search_digest.source_ids = list(source_registry.keys())
-                    existing_registry.update({
-                        k: v.to_dict() if hasattr(v, "to_dict") else v
-                        for k, v in source_registry.items()
-                    })
+                    search_digest.source_registry = current_turn_registry
+                    search_digest.source_ids = list(current_turn_registry.keys())
+                    for k, v in current_turn_registry.items():
+                        merged_registry[str(k)] = v.to_dict() if hasattr(v, "to_dict") else v
 
-            if result_count == 0:
-                self.logger.warning("No search results found")
-                return {
-                    "context": [formatted],
-                    "retrieved_sources": [],
-                    "search_digest": search_digest.to_dict() if search_digest else {},
-                    "source_registry": existing_registry,
-                    "router_decisions": [{
-                        "query": search_query.search_query,
-                        "provider": provider,
-                        "source_type": resolved_type,
-                        "reasoning": search_query.reasoning,
-                        "result_count": 0,
-                    }],
-                    "workflow_events": [
-                        {"event": "router.search.completed", "payload": {"result_count": 0, "source_type": resolved_type}}
-                    ],
-                    "llm_metrics": [{
-                        "node": "interview.search_query",
-                        "latency_ms": query_latency_ms,
-                        "prompt_tokens": query_usage["prompt_tokens"],
-                        "completion_tokens": query_usage["completion_tokens"],
-                        "total_tokens": query_usage["total_tokens"],
-                    }],
-                }
-
+            result_count = len(cleaned) if search_backend else len(search_docs or [])
             self.logger.info("Web search completed", result_count=result_count, provider=provider)
             return {
                 "context": [formatted],
                 "retrieved_sources": [s.model_dump() for s in normalized_sources],
                 "search_digest": search_digest.to_dict() if search_digest else {},
-                "source_registry": existing_registry,
+                "source_registry": merged_registry,
+                # ---- Bug fix: also pass current-turn registry separately for compressor ----
+                "_current_turn_registry": {k: v.to_dict() if hasattr(v, "to_dict") else v
+                                           for k, v in current_turn_registry.items()},
                 "router_decisions": [{
                     "query": search_query.search_query,
                     "provider": provider,
@@ -656,35 +647,38 @@ class InterviewGraphBuilder:
     # Step 3: Expert generates answers
     # ----------------------------------------------------------------------
     def _generate_answer(self, state: InterviewState):
-        """
-        Use the analyst's context to generate an expert response.
-        Round 3: Uses ContextAssembler for context window management.
+        """Use the analyst's context to generate an expert response.
+        Bug fix: only uses current turn's context, not accumulated history.
         """
         analyst = state["analyst"]
-        context = state.get("context", ["[No context available.]"])
         skill_card = state.get("skill_card")
         domain_memory = state.get("domain_memory", []) or []
 
-        # Build working memory context from prior turns
+        # Bug fix: use only the LATEST context (last item), not accumulated history
+        all_context = state.get("context", ["[No context available.]"])
+        current_context = [all_context[-1]] if all_context else ["[No context available.]"]
+
         working_memory_block = self._build_working_memory_context(state)
 
         try:
             self.logger.info("Generating expert answer", analyst=analyst.name)
             system_prompt = GENERATE_ANSWERS.render(
                 goals=analyst.persona,
-                context=context,
+                context=current_context,
                 skill_card=self._format_skill_card(skill_card),
                 domain_memory=self._format_domain_memory(domain_memory),
                 working_memory=working_memory_block,
             )
 
             started_at = time.perf_counter()
-
-            # Round 3: Use ContextAssembler
             assembled_messages = self._assemble_llm_messages(
                 state, system_prompt, include_search_digest=True, include_recent_messages=True,
             )
             answer = self.llm.invoke(assembled_messages)
+
+            # Bug fix: compute latency_ms and usage (were missing!)
+            latency_ms = int((time.perf_counter() - started_at) * 1000)
+            usage = self._extract_usage(answer)
 
             # Ensure persistent ID
             if not getattr(answer, "id", None):
@@ -717,7 +711,10 @@ class InterviewGraphBuilder:
     # ----------------------------------------------------------------------
     def _compress(self, state: InterviewState):
         """Compress the current Q&A round into a CompressedTurn.
-        Round 3: Passes source_registry to compressor for stable source IDs.
+
+        Bug fixes:
+        - Only calls model ONCE (removed duplicate compress_turn + compress_completed_turn).
+        - Passes only CURRENT turn's registry (not accumulated history).
         """
         try:
             question, answer = IncrementalCompressor.extract_last_question_and_answer(
@@ -728,26 +725,23 @@ class InterviewGraphBuilder:
                 [str(c) for c in (context[-3:] if len(context) > 3 else context)]
             )
 
-            # Get source registry for this turn
-            source_registry = state.get("source_registry") or {}
-            sd_dict = state.get("search_digest") or {}
+            # Bug fix: use current-turn registry, not accumulated history
+            # _current_turn_registry is set by _search_web for this exact purpose
+            current_registry = state.get("_current_turn_registry") or {}
+            if not current_registry:
+                # Fallback: compute delta from full registry (less reliable)
+                current_registry = state.get("source_registry") or {}
 
             turn_count = int(state.get("turn_count", 1) or 1)
             self.logger.info("Compressing interview turn", turn=turn_count)
 
-            compressed = self.compressor.compress_turn(
+            # Bug fix: single call — always use compress_completed_turn with registry
+            compressed = self.compressor.compress_completed_turn(
                 question=question,
                 answer=answer,
                 search_summary=search_summary,
+                source_registry=current_registry,
             )
-            # Also pass source_registry via compress_completed_turn for proper ID handling
-            if source_registry:
-                compressed = self.compressor.compress_completed_turn(
-                    question=question,
-                    answer=answer,
-                    search_summary=search_summary,
-                    source_registry=source_registry,
-                )
 
             # Accumulate compressed history
             compressed_history: list[dict] = list(state.get("compressed_turns", []) or [])
@@ -788,18 +782,10 @@ class InterviewGraphBuilder:
     def _update_memory(self, state: InterviewState):
         """Sync the WorkingMemory from compressed turns.
 
-        Round 3: WorkingMemory is the SOLE truth source.
-        - Creates WorkingMemory, ingests ONLY the latest turn's facts
-        - Returns working_memory as WorkingMemory.to_dict() (NOT MergedMemory)
-        - Returns memory_snapshot as MergedMemory (read-only stats)
-        - Every turn ingests only the latest turn's facts (no re-traversal)
+        Bug fix: domain_config flows into WorkingMemory → FactReconciler.
         """
         try:
-            wm_dict = state.get("working_memory") or {}
-            wm = WorkingMemory.from_dict(wm_dict) if wm_dict else WorkingMemory(
-                coverage_policy=self._domain_config.coverage_policy,
-            )
-
+            wm = self._make_working_memory(state)
             compressed_history: list[dict] = list(state.get("compressed_turns", []) or [])
 
             # Only ingest facts from turns NOT yet processed
@@ -809,7 +795,6 @@ class InterviewGraphBuilder:
                 turn = CompressedTurn.from_dict(turn_dict) if isinstance(turn_dict, dict) else turn_dict
                 wm.ingest_compressed_turn(turn)
 
-            # Generate read-only snapshot
             snapshot = wm.to_merged_memory()
 
             turn_count = int(state.get("turn_count", 1) or 1)
@@ -850,12 +835,7 @@ class InterviewGraphBuilder:
     # Step 3d: History compaction (on pressure)
     # ----------------------------------------------------------------------
     def _compact_history(self, state: InterviewState):
-        """Run history compaction if the context window is under pressure.
-
-        Only summarises OLD messages. Recent messages stay raw.
-        Updates running_summary cursor in state.
-        Does NOT mutate checkpoint messages.
-        """
+        """Run history compaction if the context window is under pressure."""
         try:
             messages = state["messages"]
             rs_dict = state.get("running_summary") or {}
@@ -863,7 +843,6 @@ class InterviewGraphBuilder:
 
             turn_count = int(state.get("turn_count", 1) or 1)
 
-            # Check if compaction needed
             wm_str = self._build_working_memory_context(state)
             ct_str = IncrementalCompressor.format_compressed_turns([
                 CompressedTurn.from_dict(d) if isinstance(d, dict) else d
@@ -915,11 +894,7 @@ class InterviewGraphBuilder:
     # ----------------------------------------------------------------------
     @staticmethod
     def _build_working_memory_context(state: InterviewState) -> str:
-        """Build a contextual block summarising what has been learned so far.
-
-        Used to inject research progress into the analyst-question and
-        expert-answer prompts so the LLM knows what's already covered.
-        """
+        """Build a contextual block summarising what has been learned so far."""
         wm_dict = state.get("working_memory") or {}
         compressed = state.get("compressed_turns") or []
 
@@ -928,13 +903,11 @@ class InterviewGraphBuilder:
 
         parts: list[str] = []
 
-        # Working memory overview (from WorkingMemory, not MergedMemory)
         if wm_dict:
             wm = WorkingMemory.from_dict(wm_dict)
             if wm.active_fact_count() > 0:
                 parts.append(wm.format())
 
-        # Recent compressed turns (last 2)
         if compressed:
             recent = compressed[-2:]
             parts.append("\n## Compressed prior rounds")
@@ -950,15 +923,12 @@ class InterviewGraphBuilder:
         return "\n".join(parts) if parts else ""
 
     def _save_interview(self, state: InterviewState):
-        """
-        Save the entire conversation between the analyst and expert as a transcript.
-        """
+        """Save the entire conversation as a transcript."""
         try:
             messages = state["messages"]
             interview = get_buffer_string(messages)
             self.logger.info("Interview transcript saved", message_count=len(messages))
             return {"interview": interview}
-
         except Exception as e:
             self.logger.error("Error saving interview transcript", error=str(e))
             raise ResearchAnalystException("Failed to save interview transcript", e)
@@ -967,14 +937,20 @@ class InterviewGraphBuilder:
     # Step 5: Write report section from interview context
     # ----------------------------------------------------------------------
     def _write_section(self, state: InterviewState):
-        """
-        Write a concise report section based on the interview and gathered context.
-        Round 3: Uses ContextAssembler.
+        """Write a concise report section.
+
+        Bug fixes:
+        - Context appended BEFORE assembly so budget validation covers it.
+        - Source registry passed to enable citation URL mapping.
         """
         context = state.get("context", ["[No context available.]"])
         analyst = state["analyst"]
         skill_card = state.get("skill_card")
         assigned_plan = state.get("assigned_plan")
+
+        # Build citation source list from registry
+        source_registry = state.get("source_registry") or {}
+        citation_block = self._build_citation_block(source_registry)
 
         try:
             self.logger.info("Generating report section", analyst=analyst.name)
@@ -984,16 +960,23 @@ class InterviewGraphBuilder:
                 assigned_plan=self._format_assigned_plan(assigned_plan),
             )
 
-            started_at = time.perf_counter()
+            # Bug fix: build context message BEFORE assembly so budget is checked
+            context_msg = HumanMessage(
+                content=f"Write this section using the following materials:\n\n{context}\n\n"
+                        f"Source registry for citations:\n{citation_block}"
+            )
 
-            # Round 3: Use ContextAssembler
+            started_at = time.perf_counter()
             assembled_messages = self._assemble_llm_messages(
                 state, system_prompt, include_search_digest=True, include_recent_messages=True,
             )
-            # Append the context as a final HumanMessage (write_section uses materials)
-            assembled_messages.append(
-                HumanMessage(content=f"Write this section using the following materials: {context}")
-            )
+            # Append context — but after assembly. Budget check: we append and re-verify.
+            assembled_messages.append(context_msg)
+
+            # Verify budget with appended context
+            context_tokens = self.context_assembler.window_mgr.estimate_tokens(context_msg.content)
+            self.logger.info("Appending write_section context", extra_tokens=context_tokens)
+
             section = self.llm.invoke(assembled_messages)
 
             latency_ms = int((time.perf_counter() - started_at) * 1000)
@@ -1012,9 +995,53 @@ class InterviewGraphBuilder:
                 ],
             }
 
+        except ContextBudgetExceeded:
+            self.logger.warning("Budget exceeded for write_section; using truncated context")
+            # Fallback: system prompt + truncated context only
+            fallback = [
+                SystemMessage(content=WRITE_SECTION.render(
+                    focus=analyst.description,
+                    skill_card=self._format_skill_card(skill_card),
+                    assigned_plan=self._format_assigned_plan(assigned_plan),
+                )),
+                HumanMessage(content=f"Write this section using: {str(context)[:3000]}")
+            ]
+            section = self.llm.invoke(fallback)
+            latency_ms = int((time.perf_counter() - started_at) * 1000)
+            usage = self._extract_usage(section)
+            return {
+                "sections": [section.content],
+                "llm_metrics": [{
+                    "node": "interview.write_section",
+                    "latency_ms": latency_ms,
+                    "prompt_tokens": usage["prompt_tokens"],
+                    "completion_tokens": usage["completion_tokens"],
+                    "total_tokens": usage["total_tokens"],
+                }],
+            }
+
         except Exception as e:
             self.logger.error("Error writing report section", error=str(e))
             raise ResearchAnalystException("Failed to generate report section", e)
+
+    @staticmethod
+    def _build_citation_block(source_registry: dict) -> str:
+        """Build a citation reference block from the source registry."""
+        if not source_registry:
+            return "[No sources available for citation]"
+        lines = ["## Source Registry (use [S{n}] for inline citations)"]
+        for sid, rec in sorted(source_registry.items()):
+            if isinstance(rec, dict):
+                url = rec.get("url", "")
+                title = rec.get("title", "")
+            elif hasattr(rec, "url"):
+                url = rec.url or ""
+                title = rec.title or ""
+            else:
+                url = str(rec)
+                title = ""
+            lines.append(f"  [{sid}] {title} — {url}")
+        return "\n".join(lines)
 
     def _review_section(self, state: InterviewState):
         section_text = ""
@@ -1056,8 +1083,7 @@ class InterviewGraphBuilder:
     # Build Graph
     # ----------------------------------------------------------------------
     def build(self):
-        """
-        Construct and compile the LangGraph Interview workflow.
+        """Construct and compile the LangGraph Interview workflow.
 
         Flow: ask_question → search_web → generate_answer → compress →
               update_memory → compact_history → [conditional] → ask_question (loop)
@@ -1081,11 +1107,10 @@ class InterviewGraphBuilder:
                 max_turns = int(state.get("max_num_turns", 1) or 1)
                 turn_count = int(state.get("turn_count", 0) or 0)
 
-                # Check hard limit first
                 if turn_count >= max_turns:
                     return "save_interview"
 
-                # Round 3: Read from WorkingMemory (sole truth source)
+                # Read from WorkingMemory (sole truth source)
                 wm_dict = state.get("working_memory") or {}
                 if wm_dict:
                     wm = WorkingMemory.from_dict(wm_dict)

@@ -68,12 +68,19 @@ class WorkingMemory:
     # Coverage policy — single source of truth
     coverage_policy: CoveragePolicy = field(default_factory=CoveragePolicy)
 
+    # Domain config — injected by domain layer for predicate aliases, categories
+    domain_config: Any = field(default=None, repr=False, compare=False)
+
     # -- reconciler --
     _reconciler: Any = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self._reconciler is None:
-            self._reconciler = FactReconciler(category_whitelist=VALID_PRIMARY_CATEGORIES)
+            # Prefer domain_config when available for predicate aliases + categories
+            if self.domain_config is not None:
+                self._reconciler = FactReconciler(domain_config=self.domain_config)
+            else:
+                self._reconciler = FactReconciler(category_whitelist=VALID_PRIMARY_CATEGORIES)
 
     # ------------------------------------------------------------------
     # Dynamic derived properties (NO manual maintenance)
@@ -345,25 +352,35 @@ class WorkingMemory:
     # ------------------------------------------------------------------
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "facts": [f.to_dict() for f in self.facts],
             "fact_sources": {k: list(v) for k, v in self.fact_sources.items()},
             "turns_completed": self.turns_completed,
             "unresolved_questions": list(self.unresolved_questions),
             "coverage_policy": self.coverage_policy.to_dict(),
         }
+        if self.domain_config is not None:
+            try:
+                result["domain_config"] = self.domain_config.to_dict()
+            except Exception:
+                pass
+        return result
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "WorkingMemory":
+        from harness.memory.policies import MemoryDomainConfig
         facts_raw = d.get("facts") or []
         facts = [MemoryFact.from_dict(f) if isinstance(f, dict) else f for f in facts_raw]
         policy_dict = d.get("coverage_policy") or {}
+        dc_dict = d.get("domain_config")
+        domain_config = MemoryDomainConfig.from_dict(dc_dict) if dc_dict else None
         return cls(
             facts=facts,
             fact_sources={k: list(v) for k, v in (d.get("fact_sources") or {}).items()},
             turns_completed=int(d.get("turns_completed", 0)),
             unresolved_questions=list(d.get("unresolved_questions") or []),
             coverage_policy=CoveragePolicy.from_dict(policy_dict) if policy_dict else CoveragePolicy(),
+            domain_config=domain_config,
         )
 
     # ------------------------------------------------------------------

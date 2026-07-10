@@ -1,5 +1,5 @@
 """
-Due Diligence — Main report generation graph (migrated from app.workflows.report_generator_workflow).
+Due Diligence — Main report generation graph.
 
 Orchestrates the full pipeline: classify → assemble skills → create analysts →
 human review → plan research → parallel interviews → write/review/finalize report.
@@ -7,6 +7,7 @@ human review → plan research → parallel interviews → write/review/finalize
 import os
 import re
 import time
+import uuid
 from datetime import datetime
 from typing import Any
 from pathlib import Path
@@ -675,9 +676,14 @@ class AutonomousReportGenerator:
         try:
             self.logger.info("Building report generation graph")
             builder = StateGraph(ResearchGraphState)
+            # NOTE: cheap_llm defaults to self.llm when not provided.
+            # To use a separate cheap model for compression, set
+            # CHEAP_LLM_MODEL_NAME in .env and uncomment the lines below.
+            # cheap_llm = ModelLoader().load_llm()  # reads CHEAP_LLM_MODEL_NAME from env
             interview_graph = InterviewGraphBuilder(
                 self.llm, self.tavily_search,
                 tool_registry=TOOL_REGISTRY,
+                cheap_llm=None,  # falls back to self.llm
             ).build()
 
             def initiate_all_interviews(state: ResearchGraphState):
@@ -686,6 +692,7 @@ class AutonomousReportGenerator:
                 research_plan = state.get("research_plan")
                 skill_bundle = state.get("skill_bundle", []) or []
                 domain_memory = state.get("domain_memory", []) or []
+                max_num_turns = int(state.get("max_num_turns", 1) or 1)
                 if not analysts:
                     self.logger.warning("No analysts found — skipping interviews")
                     return END
@@ -710,7 +717,8 @@ class AutonomousReportGenerator:
                             ),
                             "assigned_plan": analyst_plan_map.get(analyst.name),
                             "domain_memory": domain_memory,
-                            "messages": [HumanMessage(content=f"Let's discuss this due diligence task: {research_query}")],
+                            "messages": [HumanMessage(content=f"Let's discuss this due diligence task: {research_query}", id=str(uuid.uuid4()))],
+                            "max_num_turns": max_num_turns,
                             "turn_count": 0,
                             "context": [],
                             "retrieved_sources": [],
@@ -720,6 +728,12 @@ class AutonomousReportGenerator:
                             "interview": "",
                             "sections": [],
                             "llm_metrics": [],
+                            "compressed_turns": [],
+                            "working_memory": {},
+                            "running_summary": {},
+                            "search_digest": {},
+                            "source_registry": {},
+                            "memory_snapshot": {},
                         },
                     )
                     for analyst in analysts
