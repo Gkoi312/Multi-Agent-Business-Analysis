@@ -44,6 +44,17 @@ export type TaskEvent = {
   payload: Record<string, unknown>;
 };
 
+export type NodeMetric = {
+  calls: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  estimated_cost: number;
+  total_duration_ms: number;
+  avg_duration_ms: number;
+  errors: number;
+};
+
 export type TaskMetrics = {
   call_count: number;
   total_prompt_tokens: number;
@@ -52,14 +63,7 @@ export type TaskMetrics = {
   total_latency_ms: number;
   estimated_cost_usd: number;
   over_budget: boolean;
-  by_node: Record<string, {
-    calls: number;
-    prompt_tokens: number;
-    completion_tokens: number;
-    total_tokens: number;
-    total_latency_ms: number;
-    estimated_cost: number;
-  }>;
+  by_node: Record<string, NodeMetric>;
 };
 
 export type User = {

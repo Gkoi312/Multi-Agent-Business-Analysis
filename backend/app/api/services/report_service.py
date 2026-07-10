@@ -2,6 +2,7 @@ import uuid
 import os
 import re
 import time
+from typing import Any
 from fastapi.responses import FileResponse
 from app.utils.model_loader import ModelLoader
 from domains.due_diligence.graph import AutonomousReportGenerator
@@ -12,11 +13,54 @@ from langgraph.checkpoint.memory import MemorySaver
 
 _shared_memory = MemorySaver()
 
+
+def _feed_metrics(task_id: str, state_values: dict[str, Any]) -> None:
+    """Extract llm_metrics from graph state and feed into MetricsCollector + NodeTracer."""
+    from harness.observability.metrics import get_ledger
+    from harness.observability.tracer import get_tracer
+
+    llm_metrics: list[dict] = state_values.get("llm_metrics", []) or []
+    if not llm_metrics:
+        return
+
+    ledger = get_ledger(task_id)
+    tracer = get_tracer(task_id)
+
+    for m in llm_metrics:
+        if not isinstance(m, dict):
+            continue
+        node = str(m.get("node", "") or "unknown")
+        model = str(m.get("model", ""))
+        prompt_tokens = int(m.get("prompt_tokens", 0) or 0)
+        completion_tokens = int(m.get("completion_tokens", 0) or 0)
+        total_tokens = int(m.get("total_tokens", 0) or 0) or (prompt_tokens + completion_tokens)
+        latency_ms = int(m.get("latency_ms", 0) or 0)
+
+        # Feed MetricsCollector (cost/token tracking)
+        ledger.record(
+            node=node,
+            model=model,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            latency_ms=latency_ms,
+        )
+
+        # Feed NodeTracer (per-node execution traces)
+        with tracer.trace(node) as span:
+            span.record_llm_call(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                latency_ms=latency_ms,
+                model=model,
+            )
+
+
 class ReportService:
     def __init__(self):
         self.llm = ModelLoader().load_llm()
         self.reporter = AutonomousReportGenerator(self.llm)
-        self.reporter.memory = _shared_memory 
+        self.reporter.memory = _shared_memory
         self.graph = self.reporter.build_graph()
         self.logger = GLOBAL_LOGGER.bind(module="ReportService")
 
@@ -99,6 +143,7 @@ class ReportService:
         industry_pack: str,
         focus: str = "",
         target_role: str = "",
+        task_id: str = "",
     ):
         """Trigger the autonomous report pipeline."""
         try:
@@ -111,7 +156,10 @@ class ReportService:
                 company_name=company_name,
                 thread_id=thread_id,
                 industry_pack=pack,
+                task_id=task_id,
             )
+
+            overall_started = time.perf_counter()
 
             for _ in self.graph.stream(
                 {
@@ -120,7 +168,7 @@ class ReportService:
                     "focus": focus,
                     "target_role": target_role,
                     "max_analysts": max_analysts,
-                    "max_num_turns": 1,
+                    "max_num_turns": 3,
                     "planner_enabled": True,
                     "review_enabled": True,
                     "industry_pack": pack,
@@ -141,8 +189,21 @@ class ReportService:
                 stream_mode="values",
             ):
                 pass
+
+            overall_elapsed_ms = int((time.perf_counter() - overall_started) * 1000)
             state = self.graph.get_state(thread)
             analysts_preview = self._extract_analysts_preview(state.values)
+
+            # Feed metrics from final state into the harness ledger/tracer
+            if task_id:
+                _feed_metrics(task_id, state.values)
+                # Record overall execution as a tracer entry
+                from harness.observability.tracer import get_tracer
+                tracer = get_tracer(task_id)
+                with tracer.trace("_total_generation") as span:
+                    span.set_output(f"elapsed_ms={overall_elapsed_ms}, analysts={len(analysts_preview)}")
+                    span.tag(overall_elapsed_ms=overall_elapsed_ms)
+
             return {
                 "thread_id": thread_id,
                 "analysts_preview": analysts_preview,
@@ -151,30 +212,40 @@ class ReportService:
             self.logger.error("Error initiating report generation", error=str(e))
             raise ResearchAnalystException("Failed to start report generation", e)
 
-    def submit_feedback(self, thread_id: str, feedback: str):
+    def submit_feedback(self, thread_id: str, feedback: str, task_id: str = ""):
         """Update human feedback in graph state."""
         try:
             thread = {"configurable": {"thread_id": thread_id}}
             self.graph.update_state(thread, {"human_analyst_feedback": feedback}, as_node="human_feedback")
             self.logger.info("Feedback updated", thread_id=thread_id)
-            started_at = time.perf_counter()
+            overall_started = time.perf_counter()
             for _ in self.graph.stream(None, thread, stream_mode="values"):
                 pass
-            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+            overall_elapsed_ms = int((time.perf_counter() - overall_started) * 1000)
             state = self.graph.get_state(thread)
             pending_nodes = list(getattr(state, "next", []) or [])
             analysts_preview = self._extract_analysts_preview(state.values)
             awaiting_feedback = "human_feedback" in pending_nodes
+
+            # Feed metrics
+            if task_id:
+                _feed_metrics(task_id, state.values)
+                from harness.observability.tracer import get_tracer
+                tracer = get_tracer(task_id)
+                with tracer.trace("_total_feedback") as span:
+                    span.set_output(f"elapsed_ms={overall_elapsed_ms}, awaiting_feedback={awaiting_feedback}")
+                    span.tag(overall_elapsed_ms=overall_elapsed_ms)
+
             return {
-                "feedback_elapsed_ms": elapsed_ms,
+                "feedback_elapsed_ms": overall_elapsed_ms,
                 "awaiting_feedback": awaiting_feedback,
                 "analysts_preview": analysts_preview,
             }
         except Exception as e:
             self.logger.error("Error updating feedback", error=str(e))
             raise ResearchAnalystException("Failed to update feedback", e)
-        
-    def get_report_status(self, thread_id: str):
+
+    def get_report_status(self, thread_id: str, task_id: str = ""):
         """Fetch latest state or final report."""
         try:
             thread = {"configurable": {"thread_id": thread_id}}
@@ -194,6 +265,11 @@ class ReportService:
                 if review:
                     review_status = getattr(review, "status", "")
                     review_summary = getattr(review, "summary", "")
+
+                # Feed metrics one final time (includes write_report, review, finalize nodes)
+                if task_id:
+                    _feed_metrics(task_id, state.values)
+
                 return {
                     "status": "completed",
                     "docx_path": file_docx,

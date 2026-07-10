@@ -333,13 +333,13 @@ export function TaskDetailPage() {
             {/* Metrics section */}
             {metrics ? (
               <section className="subsection">
-                <h2>Token usage &amp; cost</h2>
+                <h2>Execution metrics</h2>
                 <div className="task-meta-grid">
+                  <div><strong>Total duration:</strong> {(metrics.total_latency_ms / 1000).toFixed(1)}s</div>
                   <div><strong>LLM calls:</strong> {metrics.call_count}</div>
                   <div><strong>Prompt tokens:</strong> {metrics.total_prompt_tokens.toLocaleString()}</div>
                   <div><strong>Completion tokens:</strong> {metrics.total_completion_tokens.toLocaleString()}</div>
                   <div><strong>Total tokens:</strong> {metrics.total_tokens.toLocaleString()}</div>
-                  <div><strong>Total latency:</strong> {(metrics.total_latency_ms / 1000).toFixed(1)}s</div>
                   <div>
                     <strong>Est. cost:</strong> ${metrics.estimated_cost_usd.toFixed(4)}
                     {metrics.over_budget ? <span className="error-text"> ⚠️ Over budget</span> : null}
@@ -347,13 +347,66 @@ export function TaskDetailPage() {
                 </div>
                 {Object.keys(metrics.by_node).length > 0 ? (
                   <details style={{ marginTop: "0.75rem" }}>
-                    <summary style={{ cursor: "pointer", fontWeight: 600 }}>Per-node breakdown</summary>
-                    <div style={{ marginTop: "0.5rem" }}>
-                      {Object.entries(metrics.by_node).map(([node, stats]) => (
-                        <div key={node} style={{ marginBottom: "0.4rem", fontSize: "0.9rem" }}>
-                          <strong>{node}</strong>: {stats.calls} call(s), {stats.total_tokens.toLocaleString()} tokens, ${stats.estimated_cost.toFixed(4)}
-                        </div>
-                      ))}
+                    <summary style={{ cursor: "pointer", fontWeight: 600 }}>
+                      Per-node breakdown ({Object.keys(metrics.by_node).length} nodes)
+                    </summary>
+                    <div style={{ marginTop: "0.5rem", overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.88rem" }}>
+                        <thead>
+                          <tr style={{ borderBottom: "2px solid #e5e7eb", textAlign: "left" }}>
+                            <th style={{ padding: "6px 8px" }}>Node</th>
+                            <th style={{ padding: "6px 8px", textAlign: "right" }}>Calls</th>
+                            <th style={{ padding: "6px 8px", textAlign: "right" }}>Duration</th>
+                            <th style={{ padding: "6px 8px", textAlign: "right" }}>Tokens</th>
+                            <th style={{ padding: "6px 8px", textAlign: "right" }}>Cost</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Object.entries(metrics.by_node)
+                            .filter(([n]) => !n.startsWith("_total"))
+                            .sort(([, a], [, b]) => b.total_duration_ms - a.total_duration_ms)
+                            .map(([node, stats]) => (
+                              <tr key={node} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                                <td style={{ padding: "6px 8px" }}>
+                                  <strong>{node}</strong>
+                                  {stats.errors > 0 ? <span style={{ color: "#dc2626", marginLeft: "6px" }}>⚠️</span> : null}
+                                </td>
+                                <td style={{ padding: "6px 8px", textAlign: "right" }}>{stats.calls}</td>
+                                <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                                  {(stats.total_duration_ms / 1000).toFixed(2)}s
+                                </td>
+                                <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                                  {stats.total_tokens.toLocaleString()}
+                                </td>
+                                <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                                  ${stats.estimated_cost.toFixed(4)}
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                        {/* Totals row */}
+                        {(() => {
+                          const totals = Object.entries(metrics.by_node).filter(([n]) => n.startsWith("_total"));
+                          if (!totals.length) return null;
+                          return (
+                            <tfoot>
+                              <tr style={{ borderTop: "2px solid #e5e7eb", fontWeight: 600 }}>
+                                <td style={{ padding: "6px 8px" }}>Total</td>
+                                <td style={{ padding: "6px 8px", textAlign: "right" }}>{metrics.call_count}</td>
+                                <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                                  {(metrics.total_latency_ms / 1000).toFixed(2)}s
+                                </td>
+                                <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                                  {metrics.total_tokens.toLocaleString()}
+                                </td>
+                                <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                                  ${metrics.estimated_cost_usd.toFixed(4)}
+                                </td>
+                              </tr>
+                            </tfoot>
+                          );
+                        })()}
+                      </table>
                     </div>
                   </details>
                 ) : null}

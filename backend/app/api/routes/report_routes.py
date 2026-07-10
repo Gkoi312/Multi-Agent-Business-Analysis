@@ -126,6 +126,7 @@ def _start_generation_job(task_id: str, research_query: str, max_analysts: int):
             str(task.get("industry_pack", "") or ""),
             focus=focus,
             target_role=target_role,
+            task_id=task_id,
         )
         analysts_preview = result.get("analysts_preview", [])
         TASK_RUNTIME.emit_event(
@@ -153,7 +154,7 @@ def _start_feedback_job(task_id: str, thread_id: str, feedback: str):
         service = ReportService()
         current_task = TASK_RUNTIME.get_task(task_id) or {}
         current_analyst_version = int(current_task.get("analyst_version", 0) or 0)
-        feedback_result = service.submit_feedback(thread_id, feedback)
+        feedback_result = service.submit_feedback(thread_id, feedback, task_id=task_id)
         if feedback_result.get("awaiting_feedback"):
             next_analyst_version = current_analyst_version + (1 if feedback.strip() else 0)
             return {
@@ -162,7 +163,7 @@ def _start_feedback_job(task_id: str, thread_id: str, feedback: str):
                 "analyst_version": next_analyst_version,
                 "failed_stage": "",
             }
-        result = service.get_report_status(thread_id)
+        result = service.get_report_status(thread_id, task_id=task_id)
         TASK_RUNTIME.emit_event(
             task_id,
             "workflow.report.status",
@@ -321,10 +322,61 @@ async def get_task_metrics(request: Request, task_id: str):
     username = _require_current_user(request)
     _require_owned_task(task_id, username)
     from harness.observability.metrics import get_ledger
+    from harness.observability.tracer import get_tracer
     from app.api.models.request_models import MetricsResponse
+
     ledger = get_ledger(task_id)
-    summary = ledger.summary()
-    return MetricsResponse(**summary)
+    tracer = get_tracer(task_id)
+
+    # Merge ledger (token/cost) + tracer (per-node timing) into one response
+    ledger_summary = ledger.summary()
+
+    tracer_summary = tracer.summary()
+    tracer_by_node: dict[str, dict] = {}
+    for node_name, stats in (tracer_summary.get("by_node") or {}).items():
+        tracer_by_node[node_name] = {
+            "count": stats.get("count", 0),
+            "total_duration_ms": stats.get("total_duration_ms", 0),
+            "avg_duration_ms": (
+                round(stats["total_duration_ms"] / stats["count"])
+                if stats.get("count") else 0
+            ),
+            "errors": stats.get("errors", 0),
+        }
+
+    # Merge per-node data: ledger has token/cost, tracer has timing
+    merged_by_node: dict[str, dict] = {}
+    ledger_nodes = ledger_summary.get("by_node") or {}
+    for node_name in set(list(ledger_nodes.keys()) + list(tracer_by_node.keys())):
+        ln = ledger_nodes.get(node_name) or {}
+        tn = tracer_by_node.get(node_name) or {}
+        merged_by_node[node_name] = {
+            "calls": ln.get("calls", 0) or tn.get("count", 0),
+            "prompt_tokens": ln.get("prompt_tokens", 0),
+            "completion_tokens": ln.get("completion_tokens", 0),
+            "total_tokens": ln.get("total_tokens", 0),
+            "estimated_cost": ln.get("estimated_cost", 0.0),
+            "total_duration_ms": tn.get("total_duration_ms", 0),
+            "avg_duration_ms": tn.get("avg_duration_ms", 0),
+            "errors": tn.get("errors", 0),
+        }
+
+    # Compute total duration from tracer
+    total_duration_ms = tracer_summary.get("total_duration_ms", 0)
+
+    return MetricsResponse(
+        call_count=ledger_summary.get("call_count", 0),
+        total_prompt_tokens=ledger_summary.get("total_prompt_tokens", 0),
+        total_completion_tokens=ledger_summary.get("total_completion_tokens", 0),
+        total_tokens=ledger_summary.get("total_tokens", 0),
+        total_latency_ms=total_duration_ms or ledger_summary.get("total_latency_ms", 0),
+        estimated_cost_usd=ledger_summary.get("estimated_cost_usd", 0.0),
+        budget_cap_usd=ledger_summary.get("budget_cap_usd"),
+        budget_remaining_usd=ledger_summary.get("budget_remaining_usd"),
+        over_budget=ledger_summary.get("over_budget", False),
+        by_node=merged_by_node,
+        by_model=ledger_summary.get("by_model", {}),
+    )
 
 
 @router.post("/tasks/{task_id}/feedback", response_model=TaskActionResponse)
