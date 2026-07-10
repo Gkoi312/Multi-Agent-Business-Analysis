@@ -1,5 +1,20 @@
 # Harness generic data models — memory types, agent types, state helpers.
 
+from harness.models.agent import (
+    Analyst,
+    AnalystPlan,
+    CoverageGoal,
+    DomainMemoryEntry,
+    DomainMemoryRef,
+    Perspectives,
+    ResearchPlan,
+    RetrievedSource,
+    ReviewFinding,
+    ReviewSummary,
+    SearchQuery,
+    SkillRef,
+    SourcePolicy,
+)
 from harness.models.memory import (
     CompressedTurn,
     MergedMemory,
@@ -17,6 +32,21 @@ from harness.models.memory import (
 )
 
 __all__ = [
+    # Agent types
+    "Analyst",
+    "AnalystPlan",
+    "CoverageGoal",
+    "DomainMemoryEntry",
+    "DomainMemoryRef",
+    "Perspectives",
+    "ResearchPlan",
+    "RetrievedSource",
+    "ReviewFinding",
+    "ReviewSummary",
+    "SearchQuery",
+    "SkillRef",
+    "SourcePolicy",
+    # Memory types
     "CompressedTurn",
     "MergedMemory",
     "MemoryFact",
