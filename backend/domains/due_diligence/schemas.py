@@ -47,6 +47,13 @@ class InterviewState(MessagesState):
     interview: str
     sections: list
     llm_metrics: Annotated[list, operator.add]
+    # Memory & compression (Phase 4.3 + Round 3)
+    compressed_turns: list  # list[dict] — serialised CompressedTurn payloads
+    working_memory: dict  # serialised WorkingMemory payload (sole truth source, NOT list-reduced)
+    memory_snapshot: dict  # read-only MergedMemory snapshot derived from WorkingMemory
+    running_summary: dict  # serialised RunningSummary cursor (NOT list-reduced)
+    search_digest: dict  # serialised SearchDigest for current turn
+    source_registry: dict  # serialised {source_id: SourceRecord} accumulated across turns
 
 
 class ResearchGraphState(TypedDict):
