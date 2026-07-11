@@ -37,11 +37,31 @@ function renderMarkdown(md: string): string {
   html = html.replace(/^### (.+)$/gm, "<h4>$1</h4>");
   html = html.replace(/^## (.+)$/gm, "<h3>$1</h3>");
 
-  // Unordered list items
-  html = html.replace(/^[-*] (.+)$/gm, "<li>$1</li>");
+  // Numbered list items — wrap block in <ol>
+  html = html.replace(
+    /((?:^\d+[.)]\s+.+(?:\n|$))+)/gm,
+    (block) => {
+      const items = block
+        .trim()
+        .split("\n")
+        .map((line) => line.replace(/^\d+[.)]\s+(.+)$/, "<li>$1</li>"))
+        .join("");
+      return `<ol>${items}</ol>`;
+    }
+  );
 
-  // Wrap consecutive <li> in <ul>
-  html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, "<ul>$1</ul>");
+  // Unordered list items — wrap block in <ul>
+  html = html.replace(
+    /((?:^[-*] .+(?:\n|$))+)/gm,
+    (block) => {
+      const items = block
+        .trim()
+        .split("\n")
+        .map((line) => line.replace(/^[-*] (.+)$/, "<li>$1</li>"))
+        .join("");
+      return `<ul>${items}</ul>`;
+    }
+  );
 
   // Double-newline → paragraph break
   html = html.replace(/\n\n+/g, "</p><p>");
@@ -144,13 +164,13 @@ export function TaskReportPage() {
 
             {task.status === "completed" ? (
               <>
-                {/* Quality review */}
-                {task.report_review_status ? (
+                {/* Quality review — only show when not passed (pass is uninteresting) */}
+                {task.report_review_status && task.report_review_status !== "pass" ? (
                   <section className="subsection">
                     <h2>质量审核</h2>
                     <p>
                       状态：{" "}
-                      <span className={`status-pill status-${task.report_review_status === "pass" ? "completed" : "failed"}`}>
+                      <span className={`status-pill status-failed`}>
                         {getReviewLabel(task.report_review_status)}
                       </span>
                     </p>

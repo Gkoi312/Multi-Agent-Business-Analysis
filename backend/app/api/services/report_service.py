@@ -117,8 +117,11 @@ class ReportService:
         )
         if not match:
             return ""
-        section = re.sub(r"\s+", " ", match.group(1)).strip()
-        return section[:300]
+        # preserve line breaks — only collapse multiple spaces within lines,
+        # strip each line, and remove blank lines
+        lines = [re.sub(r"\s+", " ", line).strip() for line in match.group(1).split("\n")]
+        section = "\n".join(line for line in lines if line)
+        return section[:600]
 
     @staticmethod
     def _extract_analysts_preview(state_values: dict) -> list[dict]:

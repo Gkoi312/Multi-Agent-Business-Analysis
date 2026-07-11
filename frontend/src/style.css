@@ -337,7 +337,8 @@ textarea.feedback-input {
   margin-bottom: 0;
 }
 
-.markdown-body ul {
+.markdown-body ul,
+.markdown-body ol {
   margin: 4px 0 10px;
   padding-left: 20px;
 }

@@ -323,7 +323,7 @@ export function TaskDetailPage() {
                   </div>
                 ) : null}
               </div>
-              {task.report_review_summary ? (
+              {task.report_review_summary && task.report_review_status !== "pass" ? (
                 <p className="muted" style={{ marginTop: "0.5rem" }}>{task.report_review_summary}</p>
               ) : null}
             </section>
