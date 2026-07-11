@@ -307,17 +307,129 @@ class InterviewGraphBuilder:
                 lines.append(f"  - {s[:200]}")
         return "\n".join(lines)
 
+    # Provider priority order — first available wins (web search only).
+    # Policy may override via ``preferred_provider`` or ``search_provider`` keys.
+    _PROVIDER_PRIORITY = ["serper", "tavily", "bocha", "github"]
+
+    # Source-type → specialised provider mapping (checked before general priority).
+    _SOURCE_TYPE_PROVIDER: dict[str, str] = {
+        "sec": "sec_edgar",
+        "annual": "sec_edgar",
+        "10-k": "sec_edgar",
+        "quarterly": "sec_edgar",
+        "10-q": "sec_edgar",
+        "8-k": "sec_edgar",
+        "ipo": "sec_edgar",
+        "cninfo": "cninfo",
+        "announcement": "cninfo",
+    }
+
     def _route_search(self, query: SearchQuery, policy: dict[str, Any] | None):
-        """Resolve a source-type label and provider for this search."""
-        preferred = (query.source_type or "").strip().lower()
-        preferred_source_types = self._value(policy, "preferred_source_types", []) if policy else []
-        if preferred_source_types:
-            preferred = preferred or str(preferred_source_types[0]).lower()
-        if preferred in {"company", "news", "web"}:
-            provider = "tavily"
-        else:
-            provider = "tavily"
-        return provider, preferred or "web"
+        """Resolve a source-type label and provider for this search.
+
+        Selection order:
+        1. Policy-level ``search_provider`` or ``preferred_provider`` key (if registered).
+        2. Source-type → specialised provider mapping (sec_edgar, cninfo).
+        3. First available provider from ``_PROVIDER_PRIORITY``.
+        4. Any registered provider as ultimate fallback.
+        """
+        available = set(self.tool_registry.list_search())
+        source_type = (query.source_type or "web").strip().lower()
+
+        # Honour explicit policy override
+        if policy:
+            explicit = str(self._value(policy, "search_provider", "") or
+                           self._value(policy, "preferred_provider", "") or "").strip().lower()
+            if explicit and explicit in available:
+                return explicit, source_type
+
+        # Route by source type to specialised providers
+        specialised = self._SOURCE_TYPE_PROVIDER.get(source_type)
+        if specialised and specialised in available:
+            return specialised, source_type
+
+        # Walk priority list
+        for p in self._PROVIDER_PRIORITY:
+            if p in available:
+                return p, source_type
+
+        # Ultimate fallback — anything registered
+        if available:
+            first = sorted(available)[0]
+            return first, source_type
+
+        # Should never happen — graph.py registers at least one adapter
+        return "tavily", source_type
+
+    # ----------------------------------------------------------------------
+    # Deep-read: fetch full page content for top search results
+    # ----------------------------------------------------------------------
+    def _deep_read(
+        self,
+        top_docs: list[SearchDocument],
+        state: InterviewState,
+        policy: dict[str, Any] | None,
+    ) -> list[SearchDocument]:
+        """Fetch full page content for the top K search results.
+
+        Tries DirectReader first (works everywhere), falls back to Jina.
+        Only runs when the source policy sets ``deep_read: true``.
+        Returns additional ``SearchDocument`` items (full pages) that will
+        be appended to the original search results.
+        """
+        if not policy or not self._value(policy, "deep_read", False):
+            return []
+
+        max_deep = int(self._value(policy, "deep_read_count", 3) or 3)
+
+        # Try DirectReader first (works everywhere), fall back to Jina
+        reader = self.tool_registry.get_browse("direct") or self.tool_registry.get_browse("jina")
+        if reader is None:
+            self.logger.warning("deep_read enabled but no browse tool registered")
+            return []
+
+        fetched: list[SearchDocument] = []
+        for doc in top_docs[:max_deep]:
+            url = doc.canonical_url or doc.url
+            if not url:
+                continue
+            try:
+                result = reader.fetch(url)
+                if result.error or not result.markdown:
+                    self.logger.info("Browse fetch skipped", url=url, error=result.error or "empty body")
+                    continue
+                sd = result.to_search_document(
+                    source_type=doc.source_type,
+                    provider=getattr(reader, "name", "direct") if hasattr(reader, "name") else "direct",
+                )
+                fetched.append(sd)
+                self.logger.info("Deep-read fetched", url=url, char_count=len(result.markdown))
+            except Exception as exc:
+                self.logger.warning("Jina fetch failed", url=url, error=str(exc))
+                continue
+
+        if not fetched:
+            return []
+
+        # Run through the same cleaning pipeline
+        target_entity = state.get("company_name", "") or ""
+        target_focus = str(self._value(policy, "focus", "") or "") if policy else ""
+        source_type = top_docs[0].source_type if top_docs else "web"
+
+        pipeline_ctx = ToolContext(
+            target_entity=target_entity,
+            target_focus=target_focus,
+            source_type=source_type,
+        )
+        cleaned, trace = self.pipeline.run_with_trace(fetched, pipeline_ctx)
+        self.logger.info(
+            "Deep-read pipeline completed",
+            fetched_count=len(fetched),
+            cleaned_count=len(cleaned),
+            trace=[{"stage": t.stage, "reduction_pct": t.reduction_pct} for t in trace],
+        )
+
+        return [d for d in cleaned if not d.dropped_reason]
 
     def _normalize_sources(self, search_docs, source_type: str) -> list[RetrievedSource]:
         normalized: list[RetrievedSource] = []
@@ -487,6 +599,16 @@ class InterviewGraphBuilder:
                     cleaned_count=len(cleaned),
                     trace=[{"stage": t.stage, "reduction_pct": t.reduction_pct} for t in trace],
                 )
+
+                # ---- Deep-read: fetch full page content for top results ----
+                deep_docs = self._deep_read(cleaned[:5], state, policy)
+                if deep_docs:
+                    cleaned = cleaned + deep_docs
+                    self.logger.info(
+                        "Deep-read appended to search results",
+                        deep_count=len(deep_docs),
+                        total_count=len(cleaned),
+                    )
 
                 # ---- Bug fix: check CLEANED count, not raw count ----
                 if len(cleaned) == 0:

@@ -34,7 +34,11 @@ from harness.models.agent import (
 from harness.tools.registry import TOOL_REGISTRY
 from harness.tools.search.tavily import TavilyAdapter
 from harness.tools.search.bocha import BochaAdapter
+from harness.tools.search.serper import SerperAdapter
 from harness.tools.search.github_repos import GitHubReposAdapter
+from harness.tools.search.sec_edgar import SECEdgarAdapter
+from harness.tools.search.cninfo import CninfoAdapter
+from harness.tools.browse.jina_reader import DirectReader, JinaReader
 from domains.due_diligence.schemas import GenerateAnalystsState, ResearchGraphState
 from domains.due_diligence.interview import InterviewGraphBuilder
 from domains.due_diligence.prompts.analysts import CREATE_ANALYSTS_PROMPT
@@ -58,22 +62,40 @@ class AutonomousReportGenerator:
         self.llm = llm
         self.memory = MemorySaver()
         load_dotenv()
+
+        # Register tools in the global registry (idempotent — only once per process).
+        # Order matters: earlier = higher priority in _PROVIDER_PRIORITY.
+        if "serper" not in TOOL_REGISTRY.list_search():
+            TOOL_REGISTRY.register_search(SerperAdapter())
+
         tavily_api_key = os.getenv("TAVILY_API_KEY")
-        if not tavily_api_key:
-            raise ResearchAnalystException(
-                "TAVILY_API_KEY is missing. Please set it in your .env file.",
-                ValueError("Missing TAVILY_API_KEY environment variable"),
-            )
+        if tavily_api_key and "tavily" not in TOOL_REGISTRY.list_search():
+            TOOL_REGISTRY.register_search(TavilyAdapter(api_key=tavily_api_key))
         self.tavily_search = TavilySearchResults(
             tavily_api_key=tavily_api_key
-        )
-        # Register tools in the global registry (idempotent — only once per process)
-        if "tavily" not in TOOL_REGISTRY.list_search():
-            TOOL_REGISTRY.register_search(TavilyAdapter(api_key=tavily_api_key))
+        ) if tavily_api_key else None
+
         if "bocha" not in TOOL_REGISTRY.list_search():
             TOOL_REGISTRY.register_search(BochaAdapter())
         if "github" not in TOOL_REGISTRY.list_search():
             TOOL_REGISTRY.register_search(GitHubReposAdapter())  # no token needed for 60 req/hr
+        if "sec_edgar" not in TOOL_REGISTRY.list_search():
+            TOOL_REGISTRY.register_search(SECEdgarAdapter())     # free — no API key
+        if "cninfo" not in TOOL_REGISTRY.list_search():
+            TOOL_REGISTRY.register_search(CninfoAdapter())       # free — no API key
+
+        # Browse tool — DirectReader for URL → text (no external service needed).
+        # Falls back to Jina if available, but DirectReader works everywhere.
+        if "direct" not in TOOL_REGISTRY.list_browse():
+            TOOL_REGISTRY.register_browse("direct", DirectReader())
+            TOOL_REGISTRY.register_browse("jina", JinaReader())  # optional, may be blocked
+
+        if not TOOL_REGISTRY.list_search():
+            raise ResearchAnalystException(
+                "No search backend available. Set at least one of: "
+                "SERPER_API_KEY, TAVILY_API_KEY, or BOCHA_API_KEY in your .env file.",
+                ValueError("No search backend configured"),
+            )
         self.skill_registry = SkillRegistry(Path(__file__).resolve().parents[3] / "skills")
         self.logger = GLOBAL_LOGGER.bind(module="AutonomousReportGenerator")
 

@@ -50,7 +50,7 @@ class SearchDocument:
 
     # ---- provenance ----
     source_type: str = "web"  # "web" | "news" | "company" | "academic"
-    provider: str = ""  # "tavily", "brave", "bocha", "github", …
+    provider: str = ""  # "tavily", "bocha", "github", …
     provider_score: float | None = None  # original relevance score from the provider
 
     # ---- metadata (extensible) ----
@@ -117,13 +117,54 @@ class SearchResult:
 
 @dataclass
 class SearchQuery:
-    """Input to a search backend."""
+    """Input to a search backend.
+
+    The ``source_type`` field controls which search adapter is used:
+
+    .. list-table::
+       :header-rows: 1
+
+       * - source_type
+         - Adapter
+         - Use case
+       * - ``"web"`` (default)
+         - Serper / Tavily / Bocha
+         - General web search
+       * - ``"news"``
+         - Serper (news endpoint)
+         - Recent news articles
+       * - ``"company"``
+         - Serper (site-targeted)
+         - Company homepage, Crunchbase, LinkedIn
+       * - ``"annual"``
+         - SEC EDGAR / CNINFO
+         - Annual reports (10-K, 20-F, 年报)
+       * - ``"quarterly"``
+         - SEC EDGAR
+         - Quarterly reports (10-Q)
+       * - ``"current"``
+         - SEC EDGAR / CNINFO
+         - Material events (8-K, 临时公告)
+       * - ``"ipo"``
+         - SEC EDGAR / CNINFO
+         - IPO prospectus (S-1, 招股书)
+       * - ``"sec"``
+         - SEC EDGAR
+         - Any SEC filing (US-listed companies)
+       * - ``"cninfo"`` / ``"announcement"``
+         - CNINFO
+         - Chinese listed company disclosures (A股)
+
+    ``site_hints`` narrows the search to specific domains (e.g. ``["36kr.com"]``
+    for Chinese tech news) or stock codes for CNINFO.
+    """
 
     query: str
-    source_type: str = "web"  # "web" | "news" | "company"
-    site_hints: list[str] = field(default_factory=list)  # e.g. ["ft.com", "wsj.com"]
+    source_type: str = "web"
+    site_hints: list[str] = field(default_factory=list)
     freshness_hint: str = "balanced"  # "recent" | "balanced" | "any"
     max_results: int = 10
+    reasoning: str = ""  # why the LLM chose this source_type + query
 
     def to_params(self, backend: str) -> dict[str, Any]:
         """Convert to backend-specific kwargs dict.

@@ -4,7 +4,7 @@ This directory holds executable skill packs **by vertical**.
 
 ## Layout
 
-- One subdirectory per vertical, e.g. `ai/`, `manufacturing/`.
+- One subdirectory per vertical, e.g. `ai/`.
 - Each subdirectory must contain exactly `skill_pack.yaml` (fixed filename; JSON is not supported).
 
 ## Recommended shape
