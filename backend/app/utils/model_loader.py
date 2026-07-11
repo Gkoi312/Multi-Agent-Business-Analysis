@@ -19,6 +19,7 @@ class ApiKeyManager:
             "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY"),
             "GOOGLE_API_KEY": os.getenv("GOOGLE_API_KEY"),
             "GROQ_API_KEY": os.getenv("GROQ_API_KEY"),
+            "DEEPSEEK_API_KEY": os.getenv("DEEPSEEK_API_KEY"),
         }
 
         log.info("Initializing ApiKeyManager")
@@ -68,6 +69,7 @@ class ModelLoader:
 
         Supported providers:
             - OpenAI
+            - DeepSeek (OpenAI-compatible, uses ChatOpenAI)
             - Google (Gemini)
             - Groq
 
@@ -102,6 +104,17 @@ class ModelLoader:
                     api_key=self.api_key_mgr.get("GROQ_API_KEY"),
                     temperature=temperature,
                     max_tokens=max_tokens,
+                )
+
+            elif provider == "deepseek":
+                from langchain_openai import ChatOpenAI
+                deepseek_key = self.api_key_mgr.get("DEEPSEEK_API_KEY") or self.api_key_mgr.get("OPENAI_API_KEY")
+                llm = ChatOpenAI(
+                    model=model_name,
+                    api_key=deepseek_key,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    base_url=base_url or "https://api.deepseek.com/v1",
                 )
 
             elif provider == "openai":

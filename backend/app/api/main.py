@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.models.request_models import HealthResponse
 from app.api.routes import report_routes
-from app.api.services.task_runtime import TASK_RUNTIME
+from harness.observability.task_runtime import TASK_RUNTIME
 from app.config import FRONTEND_ORIGINS
 
 app = FastAPI(title="Autonomous Report Generator API")

@@ -1,63 +1,58 @@
-# Multi-Agent Business Analysis
+# AgentHarness — Multi-Agent Orchestration & Evaluation Platform
 
-A `LangGraph + FastAPI` multi-agent business analysis and due diligence system.
-The project now uses a separated architecture: a `FastAPI` backend that exposes JSON APIs and a `React + Vite` frontend that handles the browser experience.
+A `LangGraph + FastAPI` **pluggable-domain AI agent infrastructure platform** with built-in memory management and evaluation framework. The first domain application is **enterprise due diligence report generation**.
+
+## Project Positioning
+
+```
+Operating System  :  Applications  =  AI Harness  :  Due Diligence / Stock Analysis / Legal Review Agents
+```
+
+This is not a specific agent application — it is the **infrastructure layer (Harness)** shared by all agent applications. It provides:
+
+1. **Agent Runtime** — orchestration engine, state management, fan-out, interrupt, recovery
+2. **Tool Integration** — standardized tool registry, invocation pipeline, result cleaning
+3. **Memory & Context** — conversational compression, structured working memory, context window management
+4. **Human-in-the-Loop** — approval gates, feedback injection, pause/resume
+5. **Observability** — traces, metrics, events, cost tracking
+6. **Evaluation** — offline eval (fixture simulation), online monitoring, reliability analysis
 
 ## Highlights
 
-- Multi-agent due diligence workflow built on `LangGraph`
-- Human-in-the-loop analyst review and regeneration before research execution
-- Separated frontend and backend architecture with JSON APIs
-- Parallel interview and report-writing pipeline
-- Exportable report outputs in both `DOCX` and `PDF`
-- Observable async runtime with persisted task state and event logs
-
-## Why This Project
-
-This project explores how multi-agent systems can support structured business analysis rather than simple chat interactions.
-Instead of generating a single answer in one pass, the system breaks the workflow into analyst planning, human review, web research, interview execution, section drafting, report assembly, and export.
-
-It is designed as a practical demo and learning project for:
-
-- multi-agent orchestration with `LangGraph`
-- human approval loops in agent workflows
-- long-running async job handling in web applications
-- report generation pipelines that combine LLM output and traditional file export
+- **Harness + Domain layered architecture** — engine and business logic are decoupled; swapping domains only requires a new adapter
+- Multi-agent due diligence workflow built on `LangGraph` with fan-out parallel interviews
+- Human-in-the-loop analyst review and regeneration loop
+- **Persistent checkpointing via SqliteSaver** — failed tasks resume from the exact node that failed, zero token waste across server restarts
+- **Pluggable skill packs** — YAML-driven industry configurations (role skills + research skills + search policies)
+- **9-stage search result cleaning pipeline** (canonicalize → clean → dedup → near-dedup → relevance → quality → structure → guard → format)
+- **7 search adapters** — Serper, Tavily, Bocha, SEC EDGAR, CNINFO, GitHub Repos, Jina/Direct Reader
+- **4.5K-line memory system** — incremental compression, fact reconciliation with SPDV decomposition, context window management, context assembly with token budget enforcement
+- Multi-provider LLM support: `openai`, `google`, `groq`, `deepseek`
+- Chinese-first report output with KaiTi font, justified alignment, and CJK PDF support
+- Exportable reports in `DOCX` and `PDF`
+- Observable async task runtime with persisted state and event logs
 
 ## Current Status
 
-- End-to-end web flow is implemented through API + SPA: sign up / log in -> submit company information -> generate analyst draft -> collect feedback -> regenerate analysts across multiple rounds -> continue research and report generation -> export files
-- Asynchronous task runtime is implemented with task states, event streams, retry support, and dependency blocking
-- Multiple model providers are supported: `openai`, `google`, and `groq`
-- Report outputs include risk frequency statistics (`high` / `medium` / `low`) and a final recommendation summary
-
-## Core Capabilities
-
-1. **Multi-agent collaboration**
-   - The main graph handles analyst generation, parallel interviews, and report synthesis
-   - The sub-graph handles questioning, search, answering, interview persistence, and section writing
-2. **Human in the loop**
-   - Execution pauses at the `human_feedback` node, allowing a feedback -> regenerate -> confirm loop before interviews begin
-   - The frontend displays analyst version numbers (`v1`, `v2`, `v3`, ...) to distinguish each revision round
-3. **Observable asynchronous tasks**
-   - Task state is persisted in `.runtime/tasks.json`
-   - Task events are written to `.runtime/task_events.jsonl`
-4. **Dual-format report export**
-   - Output directory: `generated_report/<report_name>_<timestamp>/`
-   - Output formats: `.docx` and `.pdf`
-5. **Usage metrics fallback**
-   - Token usage is read from model metadata whenever available
-   - If a provider does not return usage metadata, the UI displays `N/A` without failing or retrying the task
+- ✅ **Phase 1 complete**: Harness core layer separated from domain layer
+- ✅ **Phase 2 complete**: Tool integration — ToolRegistry + ToolPipeline + 9 cleaning stages + 7 search adapters
+- ✅ **Phase 3 complete**: Memory & context management — incremental compression, fact reconciliation, context assembly
+- ✅ Full API + SPA flow: signup/login → submit company → generate analysts → human feedback → report → export
+- ✅ Persistent checkpoints with SqliteSaver — exact-node retry across server restarts
+- 🚧 **Phase 4 next**: Evaluation framework (fixture simulation, scoring, reliability analysis)
+- 📋 Phase 5: Polish & testing
 
 ## Tech Stack
 
 - Python 3.11+
 - FastAPI / Uvicorn
-- LangGraph / LangChain
-- Tavily Search
+- LangGraph / LangChain / `langgraph-checkpoint-sqlite`
+- Serper / Tavily / Bocha / SEC EDGAR / CNINFO / GitHub Repos — multi-backend search
+- Jina Reader / Direct Reader — URL-to-text browsing
 - SQLAlchemy + SQLite for user accounts
-- `python-docx` + `reportlab` for report export
+- `python-docx` + `reportlab` (with CJK TTFont) for report export
 - `structlog` for structured logging
+- Jinja2 templated prompts
 - React / Vite / React Router
 
 ## Project Structure
@@ -65,13 +60,34 @@ It is designed as a practical demo and learning project for:
 ```text
 .
 ├── backend/
-│   ├── start_api.py
-│   ├── app/
-│   │   ├── api/
-│   │   ├── workflows/
-│   │   ├── schemas/
-│   │   ├── database/
-│   │   └── ...
+│   ├── start_api.py                    # API entry point
+│   ├── harness/                        # 🆕 Harness core platform layer
+│   │   ├── runtime/                    # Agent Runtime (graph builder, fan-out, checkpoint)
+│   │   ├── tools/                      # Tool Integration (registry, pipeline, adapters)
+│   │   │   ├── registry.py            # ToolRegistry
+│   │   │   ├── pipeline.py            # ToolPipeline + ProcessingStage
+│   │   │   ├── search/                # Search adapters (Tavily, Brave) + cleaner stages
+│   │   │   └── browse/                # Browse adapter (Jina Reader)
+│   │   ├── memory/                     # Memory & Context (compressor, working memory)
+│   │   ├── human_loop/                 # Human-in-the-Loop (gate, feedback)
+│   │   ├── observability/              # Observability (task runtime, tracer, metrics)
+│   │   ├── evaluation/                 # Evaluation framework (runner, scorer, fixtures)
+│   │   └── models/                     # Generic data models (Agent, State, Task)
+│   ├── domains/                        # 🆕 Domain application layer (pluggable)
+│   │   ├── base.py                     # DomainAdapter base class
+│   │   └── due_diligence/              # Due diligence domain
+│   │       ├── graph.py                # Main report graph
+│   │       ├── interview.py            # Interview sub-graph
+│   │       ├── schemas.py              # Domain state definitions
+│   │       └── prompts/                # Domain prompt templates
+│   ├── skills/                         # Industry skill packs (YAML-driven)
+│   ├── app/                            # Web application layer
+│   │   ├── api/                        # FastAPI routes + services
+│   │   ├── utils/                      # Model loader, etc.
+│   │   └── database/                   # User auth database
+│   ├── tests/                          # 🆕 Test suite
+│   │   └── harness/
+│   │       └── test_tools.py           # Tool pipeline unit tests (16 tests)
 │   ├── .runtime/
 │   ├── generated_report/
 │   └── users.db
@@ -79,8 +95,32 @@ It is designed as a practical demo and learning project for:
 │   ├── src/
 │   ├── package.json
 │   └── vite.config.ts
-├── requirements.txt
-└── pyproject.toml
+├── docs/
+│   └── Harness改造计划书.md
+├── .env.example
+└── README.md
+```
+
+### Layered Architecture
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                  Domain Apps (pluggable)                      │
+│   business-due-diligence  │  stock-analysis  │  legal-review  │
+├──────────────────────────────────────────────────────────────┤
+│                  Agent Harness Core                           │
+│  ┌─────────────┐ ┌──────────────┐ ┌───────────────────────┐  │
+│  │ Agent        │ │ Tool         │ │ Memory & Context      │  │
+│  │ Runtime      │ │ Integration  │ │ Manager               │  │
+│  └─────────────┘ └──────────────┘ └───────────────────────┘  │
+│  ┌─────────────┐ ┌──────────────┐ ┌───────────────────────┐  │
+│  │ Human-in-    │ │ Observability│ │ Evaluation             │  │
+│  │ the-Loop     │ │              │ │ Framework             │  │
+│  └─────────────┘ └──────────────┘ └───────────────────────┘  │
+├──────────────────────────────────────────────────────────────┤
+│                  Infrastructure                               │
+│   Model Loader  │  DB (SQLite)  │  File Storage  │  HTTP     │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ## Quick Start
@@ -98,7 +138,7 @@ pip install -r requirements.txt
 
 ### 2. Configure environment variables
 
-Create a `.env` file in the project root, or copy from `.env.example` and update the values:
+Copy `.env.example` to `.env` and fill in the values:
 
 ```env
 # Required: LLM provider
@@ -107,22 +147,24 @@ LLM_PROVIDER=openai
 # Shared model parameters
 LLM_MODEL_NAME=qwen-plus
 LLM_TEMPERATURE=0
-LLM_MAX_OUTPUT_TOKENS=2048
+LLM_MAX_OUTPUT_TOKENS=8192
 
-# Used when LLM_PROVIDER=openai
+# Provider-specific keys
 OPENAI_BASE_URL=
 OPENAI_API_KEY=your-openai-key
-
-# Used when LLM_PROVIDER=google
 GOOGLE_API_KEY=
-
-# Used when LLM_PROVIDER=groq
 GROQ_API_KEY=
 
 # Required: web search
 TAVILY_API_KEY=your-tavily-key
 
-# Backend runtime root for separated deployment
+# Optional: alternative search backend with site: filter (Phase 2)
+BRAVE_SEARCH_API_KEY=
+
+# Optional: URL-to-Markdown reader (Phase 2, free tier works without key)
+JINA_API_KEY=
+
+# Backend runtime root
 APP_ROOT=backend
 
 # Frontend dev origins allowed by CORS
@@ -154,212 +196,118 @@ Then open `http://localhost:5173` in your browser.
    - `company_name` (required)
    - `focus` (optional)
    - `target_role` (optional)
-3. The system enters `running_generation` and executes until the `human_feedback` interrupt point, where analyst drafts are generated
-4. Task status changes to `awaiting_feedback`, and you can review the analyst plan on the task detail page
-5. If feedback is provided, the system enters `running_feedback`, regenerates analysts, and returns to `awaiting_feedback`
-6. If feedback is empty, the system treats the plan as approved and continues research, interviews, and report generation
-7. When the task reaches `completed`, download the generated `DOCX` / `PDF` files and review the risk metrics and recommendation summary
+   - `industry_pack` (available via `GET /api/skill-packs`, currently supports `ai`)
+3. The system enters `running_generation` and executes until the `human_feedback` interrupt point
+4. Task status changes to `awaiting_feedback` — review the analyst plan on the task detail page
+5. Submit feedback to regenerate analysts, or leave empty to approve and continue
+6. When the task reaches `completed`, download the `DOCX` / `PDF` files
 
 ## End-to-End Flow
 
 ```text
-User input -> analyst draft -> human feedback loop -> research + interviews
--> report sections -> final report assembly -> DOCX/PDF export
+User input → company type classification → skill assembly → analyst draft
+→ human feedback loop → research planning → parallel interviews (fan-out)
+→ report section merge → final report assembly → DOCX/PDF export
 ```
 
-## Workflow Overview
-
-### Agent Architecture
+### Search Pipeline (Phase 2)
 
 ```text
-+------------------+      +------------------+      +------------------+
-| React + Vite SPA |----->+ FastAPI JSON API +----->+    TaskRuntime   |
-+------------------+      +------------------+      +------------------+
-                                                       |
-                                                       v
-                                             +------------------+
-                                             |   ReportService  |
-                                             +------------------+
-                                                       |
-                                                       v
-                                             +------------------+
-                                             | LangGraph Main   |
-                                             | (StateGraph)     |
-                                             +------------------+
-                                                       |
-                                                       v
-                                             +------------------+
-                                             |  create_analyst  |
-                                             +------------------+
-                                                       |
-                                                       v
-                                             +------------------+
-                                             |  human_feedback  |
-                                             | (interrupt point)|
-                                             +------------------+
-                                                       |
-                          +----------------------------+---------------------------+
-                          |                            |                           |
-                          v                            v                           v
-                +------------------+         +------------------+       +------------------+
-                | conduct_interview|         | conduct_interview|       | conduct_interview|
-                |   Analyst 1      |         |   Analyst 2      |       |   Analyst N      |
-                +------------------+         +------------------+       +------------------+
-                          |                            |                           |
-                          +----------------------------+---------------------------+
-                                                       |
-                                                       v
-                           Interview sub-graph for each analyst:
-                           ask_question -> search_web -> generate_answer
-                               -> save_interview -> write_section
-                                                       |
-                                                       v
-                    +------------------+   +------------------+   +------------------+
-                    |   write_report   |   |write_introduction|   | write_conclusion |
-                    +------------------+   +------------------+   +------------------+
-                              \                   |                    /
-                               \                  |                   /
-                                \                 |                  /
-                                 +----------------------------------+
-                                 |         finalize_report          |
-                                 +----------------------------------+
-                                                   |
-                                                   v
-                                 +----------------------------------+
-                                 |            save_report           |
-                                 +----------------------------------+
-                                           |                 |
-                                           v                 v
-                                        +------+         +------+
-                                        | DOCX |         | PDF  |
-                                        +------+         +------+
-```
-
-### Main Graph: `report_generator_workflow.py`
-
-- `create_analyst`: generate analyst personas with structured output
-- `human_feedback`: pause execution and wait for user approval or feedback
-- `regenerate_analyst`: regenerate analysts based on feedback
-- `conduct_interview`: run interview sub-graphs in parallel after approval
-- `write_report` / `write_introduction` / `write_conclusion`: synthesize report content in parallel
-- `finalize_report`: assemble the final report text
-
-### Sub-Graph: `interview_workflow.py`
-
-- `ask_question` -> `search_web` -> `generate_answer` -> `save_interview` -> `write_section`
-
-### Task Status Flow
-
-```text
-pending
-  |
-  v
-running_generation
-  |
-  +--> failed  --(POST /tasks/{task_id}/retry)--> running_generation
-  |
-  v
-awaiting_feedback
-  |
-  +--> (non-empty feedback) -> running_feedback -> awaiting_feedback
-  |
-  +--> (empty feedback) -> running_feedback -> completed
-  |
-  +--> failed  --(POST /tasks/{task_id}/retry)--> running_feedback
+LLM generates search query
+  → TOOL_REGISTRY resolves backend (Serper / Tavily / Bocha / SEC / CNINFO)
+    → SearchTool.search() returns raw results
+      → ToolPipeline (9 stages)
+          ├── CanonicalizeURLStage    (strip tracking params)
+          ├── CleanTextStage          (strip HTML, collapse whitespace)
+          ├── ExactDeduplicateStage   (canonical URL, best-wins)
+          ├── NearDuplicateStage      (content fingerprint + bigram Jaccard)
+          ├── RelevanceScoreStage     (keyword + optional LLM rerank)
+          ├── QualityScoreStage       (domain, fact density, SEO filler)
+          ├── StructureFactsStage     (extract numbers/dates/entities — CJK-aware)
+          ├── OutputGuardStage        (prompt injection detection)
+          └── FormatDocumentStage     (structured <Document> XML)
+        → cleaned results → LLM
 ```
 
 ## API Overview
 
-### Page routes
-
-- `GET /`: login page
-- `GET /signup`: sign-up page
-- `GET /dashboard`: create due diligence task page
-- `GET /my_tasks`: task list page
-- `GET /report_progress/{task_id}`: task progress page
-
-### Task and report endpoints
-
-- `GET /health`: health check
-- `POST /generate_report`: create and start a report task
-- `POST /submit_feedback`: submit feedback and continue the workflow
-- `GET /tasks`: current user's task list in JSON
-- `GET /tasks/{task_id}`: task details in JSON
-- `GET /tasks/{task_id}/events`: task event stream in JSON
-- `POST /tasks/{task_id}/retry`: retry a failed task
-- `GET /download/{file_name}?task_id=...`: download a task output file
+| Endpoint | Method | Description |
+|----------|:------:|-------------|
+| `/api/skill-packs` | GET | List available industry skill packs |
+| `/api/auth/signup` | POST | Register a user |
+| `/api/auth/login` | POST | Log in |
+| `/api/auth/logout` | POST | Log out |
+| `/api/auth/me` | GET | Get current user |
+| `/api/reports` | POST | Create and start a report task |
+| `/api/tasks` | GET | List current user's tasks |
+| `/api/tasks/{id}` | GET | Task details |
+| `/api/tasks/{id}/events` | GET | Task event stream |
+| `/api/tasks/{id}/feedback` | POST | Submit feedback and continue |
+| `/api/tasks/{id}/retry` | POST | Retry a failed task |
+| `/api/tasks/{id}/files/{name}` | GET | Download output file |
 
 ## Data and Outputs
 
-- `users.db`: SQLite user account database
-- `.runtime/tasks.json`: persisted task state
-- `.runtime/task_events.jsonl`: task event log
-- `generated_report/`: generated report files
-- `logs/`: application logs
-
-## Limitations
-
-- The current storage model is local-first and geared toward development or demos
-- User authentication is backed by local SQLite rather than a production-grade identity system
-- Task state and event persistence are file-based instead of using a dedicated queue or database backend
-- Report quality depends heavily on model selection, prompt quality, and external search results
-- The project currently has limited automated test coverage
-
-## Suitable Use Cases
-
-- Learning how to structure multi-agent workflows with `LangGraph`
-- Demonstrating a business analysis agent pipeline in a portfolio project
-- Prototyping human-in-the-loop report generation systems
-- Exploring task orchestration, retry behavior, and workflow observability
-
-## Not Yet Optimized For
-
-- high-concurrency production workloads
-- multi-tenant SaaS deployment
-- enterprise authentication and authorization
-- durable distributed task execution
-
-## Error Handling
-
-- `exception/custom_exception.py` provides the unified `ResearchAnalystException`
-- It wraps lower-level exceptions with additional context such as file name, line number, and traceback
-- This makes logs and API error messages easier to debug and keeps exception formatting consistent across modules
-
-## FAQ
-
-### 1. `TAVILY_API_KEY is missing`
-
-`TAVILY_API_KEY` is required because interview generation depends on live web search.
-
-### 2. The task failed in the UI
-
-You can inspect the failure phase through the task endpoints:
-
-- `running_generation` failures are usually caused by model or search configuration issues
-- `running_feedback` failures are usually related to thread state or model invocation issues
-
-You can retry a failed task via `POST /tasks/{task_id}/retry`.
-
-### 3. Token usage shows `N/A`
-
-This means the current model provider or invocation path did not return usage metadata. It does not affect report generation or downloads.
-
-### 4. File download failed
-
-The download endpoint validates the relationship between `task_id`, `file_name`, and the current user to prevent cross-task downloads.
+- `users.db` — SQLite user account database
+- `.runtime/tasks.json` — persisted task state
+- `.runtime/task_events.jsonl` — task event log
+- `generated_report/` — generated report files
+- `logs/` — application logs
 
 ## Development Notes
 
-- Keep state fields centralized in `schemas/models.py` when adding new nodes
-- Route all task status changes through `task_runtime.py` instead of updating state in multiple places
-- Prefer editing prompts in `prompt_lib/` before changing workflow logic
-- For production use, replace the current local-file and in-memory storage strategy with more durable infrastructure
+### Code organization
 
-## Roadmap Ideas
+- **Harness layer** (`backend/harness/`) — generic infrastructure, zero business logic
+- **Domain layer** (`backend/domains/`) — domain-specific business logic; implement `DomainAdapter` to add new domains
+- **App layer** (`backend/app/`) — web application (API routes, service orchestration, database)
+- **Skills** (`backend/skills/`) — YAML skill packs, configuration-driven
 
-- Add automated tests for core API routes and workflow state transitions
-- Replace local runtime persistence with database-backed task storage
-- Improve authentication, session handling, and deployment readiness
-- Add example screenshots or a short demo walkthrough
-- Introduce more evaluation hooks for report quality and agent performance
+### Adding a new domain
 
+1. Create a new directory under `backend/domains/`
+2. Implement the `DomainAdapter` interface from `domains/base.py`
+3. Provide domain-specific `schemas.py`, `prompts/`, and `graph.py`
+4. Create a corresponding `skill_pack.yaml` under `backend/skills/`
+
+### Adding a new search backend
+
+```python
+from harness.tools.registry import TOOL_REGISTRY
+from harness.tools.search.brave import BraveSearchAdapter
+
+TOOL_REGISTRY.register_search(BraveSearchAdapter(api_key="..."))
+```
+
+The domain code resolves backends by name automatically via `TOOL_REGISTRY.get_search(name)`.
+
+## Roadmap
+
+| Phase | Content | Status |
+|:---:|------|:---:|
+| 1 | **Foundation**: Separate Harness core from Domain layer | ✅ Done |
+| 2 | **Tool Integration**: 9-stage search cleaning pipeline + multi-backend adapters | ✅ Done |
+| 3 | **Memory & Context**: Incremental compression + fact reconciliation + context assembly | ✅ Done |
+| 4 | **Evaluation Framework**: Fixture simulation + 5-dimension scorer + reliability analysis | 🚧 Next |
+| 5 | **Polish**: Unit tests + multi-industry fixtures + frontend visualization | 📋 Planned |
+
+## Limitations
+
+- Current storage model is local-first and geared toward development or demos
+- User authentication is backed by local SQLite
+- Task state and event persistence are file-based
+- Report quality depends heavily on model selection, prompt quality, and external search results
+
+## FAQ
+
+### `TAVILY_API_KEY is missing`
+
+`TAVILY_API_KEY` is required because interview generation depends on live web search.
+
+### Task failed in the UI
+
+Inspect the failure phase through the task endpoints. Retry via `POST /api/tasks/{task_id}/retry`.
+
+### Token usage shows `N/A`
+
+This means the current model provider did not return usage metadata. It does not affect report generation or downloads.
