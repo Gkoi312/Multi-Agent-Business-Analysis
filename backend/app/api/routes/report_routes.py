@@ -292,10 +292,15 @@ async def get_task_events(request: Request, task_id: str, limit: int = 50):
 @router.get("/tasks/{task_id}/metrics")
 async def get_task_metrics(request: Request, task_id: str):
     username = _require_current_user(request)
-    _require_owned_task(task_id, username)
+    task = _require_owned_task(task_id, username)
     from harness.observability.metrics import get_ledger
     from harness.observability.tracer import get_tracer
     from app.api.models.request_models import MetricsResponse
+
+    # Serve stored snapshot for completed tasks (survives server restarts)
+    snapshot = task.get("metrics_snapshot")
+    if snapshot and isinstance(snapshot, dict) and snapshot.get("call_count", 0) > 0:
+        return MetricsResponse(**{k: v for k, v in snapshot.items() if k != "budget_cap_usd"})
 
     ledger = get_ledger(task_id)
     tracer = get_tracer(task_id)

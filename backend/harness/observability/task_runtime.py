@@ -198,6 +198,68 @@ class TaskRuntime:
         return updated_count
 
     # ------------------------------------------------------------------
+    # Metrics snapshot
+    # ------------------------------------------------------------------
+
+    def snapshot_metrics(self, task_id: str) -> dict[str, Any] | None:
+        """Capture current ledger + tracer metrics into the task record.
+
+        Called when a task reaches terminal state so metrics survive restarts.
+        """
+        try:
+            from harness.observability.metrics import get_ledger
+            from harness.observability.tracer import get_tracer
+
+            ledger = get_ledger(task_id)
+            tracer = get_tracer(task_id)
+            ledger_summary = ledger.summary()
+            tracer_summary = tracer.summary()
+
+            # Merge ledger (token/cost) + tracer (timing) into one snapshot
+            tracer_by_node: dict[str, dict] = {}
+            for node_name, stats in (tracer_summary.get("by_node") or {}).items():
+                tracer_by_node[node_name] = {
+                    "count": stats.get("count", 0),
+                    "total_duration_ms": stats.get("total_duration_ms", 0),
+                    "errors": stats.get("errors", 0),
+                }
+
+            merged_by_node: dict[str, dict] = {}
+            ledger_nodes = ledger_summary.get("by_node") or {}
+            for node_name in set(list(ledger_nodes.keys()) + list(tracer_by_node.keys())):
+                ln = ledger_nodes.get(node_name) or {}
+                tn = tracer_by_node.get(node_name) or {}
+                merged_by_node[node_name] = {
+                    "calls": ln.get("calls", 0) or tn.get("count", 0),
+                    "prompt_tokens": ln.get("prompt_tokens", 0),
+                    "completion_tokens": ln.get("completion_tokens", 0),
+                    "total_tokens": ln.get("total_tokens", 0),
+                    "estimated_cost": ln.get("estimated_cost", 0.0),
+                    "total_duration_ms": tn.get("total_duration_ms", 0),
+                    "errors": tn.get("errors", 0),
+                }
+
+            total_duration_ms = tracer_summary.get("total_duration_ms", 0)
+
+            snapshot = {
+                "call_count": ledger_summary.get("call_count", 0),
+                "total_prompt_tokens": ledger_summary.get("total_prompt_tokens", 0),
+                "total_completion_tokens": ledger_summary.get("total_completion_tokens", 0),
+                "total_tokens": ledger_summary.get("total_tokens", 0),
+                "total_latency_ms": total_duration_ms or ledger_summary.get("total_latency_ms", 0),
+                "estimated_cost_usd": ledger_summary.get("estimated_cost_usd", 0.0),
+                "over_budget": ledger_summary.get("over_budget", False),
+                "by_node": merged_by_node,
+                "by_model": ledger_summary.get("by_model", {}),
+            }
+
+            self.update_task(task_id, metrics_snapshot=snapshot)
+            return snapshot
+        except Exception:
+            self.logger.warning("Failed to snapshot metrics", task_id=task_id, exc_info=True)
+            return None
+
+    # ------------------------------------------------------------------
     # Background runner
     # ------------------------------------------------------------------
 
@@ -219,6 +281,9 @@ class TaskRuntime:
                 result["error"] = ""
                 result["failed_stage"] = ""
                 self.update_task(task_id, status=resolved_status, **result)
+                # Snapshot metrics for completed tasks so they survive restarts
+                if resolved_status == "completed":
+                    self.snapshot_metrics(task_id)
                 self._emit_event(task_id, "task.completed", {"status": resolved_status})
             except Exception as exc:
                 self.logger.error("Background task failed", task_id=task_id, error=str(exc))
