@@ -319,6 +319,37 @@ textarea.feedback-input {
   border-radius: 12px;
 }
 
+/* Rendered markdown inside summary */
+.markdown-body h3,
+.markdown-body h4 {
+  margin: 0 0 8px;
+  color: #111827;
+}
+
+.markdown-body h3 { font-size: 1.05rem; }
+.markdown-body h4 { font-size: 0.95rem; }
+
+.markdown-body p {
+  margin: 0 0 10px;
+}
+
+.markdown-body p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body ul {
+  margin: 4px 0 10px;
+  padding-left: 20px;
+}
+
+.markdown-body li {
+  margin-bottom: 4px;
+}
+
+.markdown-body strong {
+  color: #111827;
+}
+
 .risk-viz {
   margin-top: 12px;
 }
