@@ -444,7 +444,7 @@ class InterviewGraphBuilder:
             self.logger.info("Generating search query from conversation")
             plan = state.get("assigned_plan")
             policy = (self._value(plan, "source_policy", None) if plan else None) or None
-            structure_llm = self.llm.with_structured_output(SearchQuery)
+            from harness.utils.llm_json import invoke_as_json
             search_prompt = GENERATE_SEARCH_QUERY.render(
                 assigned_plan=self._format_assigned_plan(state.get("assigned_plan")),
                 source_policy=self._format_source_policy(policy),
@@ -454,10 +454,11 @@ class InterviewGraphBuilder:
             assembled_messages = self._assemble_llm_messages(
                 state, search_prompt, include_search_digest=False, include_recent_messages=True,
             )
-            search_query: SearchQuery = structure_llm.invoke(assembled_messages)
+            search_query, query_usage = invoke_as_json(
+                self.llm, assembled_messages, SearchQuery,
+            )
 
             query_latency_ms = int((time.perf_counter() - started_at) * 1000)
-            query_usage = self._extract_usage(search_query)
 
             provider, resolved_type = self._route_search(search_query, policy)
             search_backend = self.tool_registry.get_search(provider)

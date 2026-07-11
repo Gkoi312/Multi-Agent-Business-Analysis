@@ -241,7 +241,7 @@ class AutonomousReportGenerator:
         skill_bundle = state.get("skill_bundle", []) or []
         try:
             self.logger.info("Creating analyst personas", research_query=research_query)
-            structured_llm = self.llm.with_structured_output(Perspectives)
+            from harness.utils.llm_json import invoke_as_json
             system_prompt = CREATE_ANALYSTS_PROMPT.render(
                 research_query=research_query,
                 max_analysts=max_analysts,
@@ -250,10 +250,14 @@ class AutonomousReportGenerator:
                 skill_catalog=self._format_skill_catalog(skill_bundle),
             )
             started_at = time.perf_counter()
-            analysts = structured_llm.invoke([
-                SystemMessage(content=system_prompt),
-                HumanMessage(content="Generate this set of analyst personas."),
-            ])
+            analysts, usage = invoke_as_json(
+                self.llm,
+                [
+                    SystemMessage(content=system_prompt),
+                    HumanMessage(content="Generate this set of analyst personas."),
+                ],
+                Perspectives,
+            )
             enriched_analysts = []
             for idx, analyst in enumerate(analysts.analysts):
                 skill_id, cleared_invalid = self._resolve_analyst_skill_id(
@@ -268,7 +272,6 @@ class AutonomousReportGenerator:
                     )
                 enriched_analysts.append(analyst.model_copy(update={"skill_id": skill_id}))
             latency_ms = int((time.perf_counter() - started_at) * 1000)
-            usage = self._extract_usage(analysts)
             self.logger.info("Analysts created", count=len(analysts.analysts))
             return {
                 "analysts": enriched_analysts,
