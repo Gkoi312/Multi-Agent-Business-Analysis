@@ -22,28 +22,35 @@ This is not a specific agent application — it is the **infrastructure layer (H
 - **Harness + Domain layered architecture** — engine and business logic are decoupled; swapping domains only requires a new adapter
 - Multi-agent due diligence workflow built on `LangGraph` with fan-out parallel interviews
 - Human-in-the-loop analyst review and regeneration loop
+- **Persistent checkpointing via SqliteSaver** — failed tasks resume from the exact node that failed, zero token waste across server restarts
 - **Pluggable skill packs** — YAML-driven industry configurations (role skills + research skills + search policies)
-- **5-stage search result cleaning pipeline** (dedup → clean → relevance → structure → format)
-- Multi-provider LLM support: `openai`, `google`, `groq`
+- **9-stage search result cleaning pipeline** (canonicalize → clean → dedup → near-dedup → relevance → quality → structure → guard → format)
+- **7 search adapters** — Serper, Tavily, Bocha, SEC EDGAR, CNINFO, GitHub Repos, Jina/Direct Reader
+- **4.5K-line memory system** — incremental compression, fact reconciliation with SPDV decomposition, context window management, context assembly with token budget enforcement
+- Multi-provider LLM support: `openai`, `google`, `groq`, `deepseek`
+- Chinese-first report output with KaiTi font, justified alignment, and CJK PDF support
 - Exportable reports in `DOCX` and `PDF`
 - Observable async task runtime with persisted state and event logs
 
 ## Current Status
 
 - ✅ **Phase 1 complete**: Harness core layer separated from domain layer
-- ✅ **Phase 2 complete**: Tool integration — ToolRegistry + ToolPipeline + 5 cleaning stages + Tavily/Brave/Jina adapters
+- ✅ **Phase 2 complete**: Tool integration — ToolRegistry + ToolPipeline + 9 cleaning stages + 7 search adapters
+- ✅ **Phase 3 complete**: Memory & context management — incremental compression, fact reconciliation, context assembly
 - ✅ Full API + SPA flow: signup/login → submit company → generate analysts → human feedback → report → export
-- 🚧 **Phase 3 next**: Memory management & context compression (multi-turn deep research)
-- 📋 Phase 4-5: Evaluation framework → polish & testing
+- ✅ Persistent checkpoints with SqliteSaver — exact-node retry across server restarts
+- 🚧 **Phase 4 next**: Evaluation framework (fixture simulation, scoring, reliability analysis)
+- 📋 Phase 5: Polish & testing
 
 ## Tech Stack
 
 - Python 3.11+
 - FastAPI / Uvicorn
-- LangGraph / LangChain
-- Tavily Search / Brave Search / Jina Reader
+- LangGraph / LangChain / `langgraph-checkpoint-sqlite`
+- Serper / Tavily / Bocha / SEC EDGAR / CNINFO / GitHub Repos — multi-backend search
+- Jina Reader / Direct Reader — URL-to-text browsing
 - SQLAlchemy + SQLite for user accounts
-- `python-docx` + `reportlab` for report export
+- `python-docx` + `reportlab` (with CJK TTFont) for report export
 - `structlog` for structured logging
 - Jinja2 templated prompts
 - React / Vite / React Router
@@ -207,14 +214,18 @@ User input → company type classification → skill assembly → analyst draft
 
 ```text
 LLM generates search query
-  → TOOL_REGISTRY resolves backend (Tavily / Brave)
+  → TOOL_REGISTRY resolves backend (Serper / Tavily / Bocha / SEC / CNINFO)
     → SearchTool.search() returns raw results
-      → ToolPipeline (5 stages)
-          ├── DeduplicateStage    (exact URL + Jaccard title >0.85)
-          ├── CleanTextStage      (strip HTML, collapse whitespace, min 100 chars)
-          ├── RelevanceFilterStage(keyword gate + optional cheap-LLM binary filter)
-          ├── StructureFactsStage (extract numbers/dates/sentiment — regex, zero cost)
-          └── FormatDocumentStage (structured <Document> XML)
+      → ToolPipeline (9 stages)
+          ├── CanonicalizeURLStage    (strip tracking params)
+          ├── CleanTextStage          (strip HTML, collapse whitespace)
+          ├── ExactDeduplicateStage   (canonical URL, best-wins)
+          ├── NearDuplicateStage      (content fingerprint + bigram Jaccard)
+          ├── RelevanceScoreStage     (keyword + optional LLM rerank)
+          ├── QualityScoreStage       (domain, fact density, SEO filler)
+          ├── StructureFactsStage     (extract numbers/dates/entities — CJK-aware)
+          ├── OutputGuardStage        (prompt injection detection)
+          └── FormatDocumentStage     (structured <Document> XML)
         → cleaned results → LLM
 ```
 
@@ -275,9 +286,9 @@ The domain code resolves backends by name automatically via `TOOL_REGISTRY.get_s
 | Phase | Content | Status |
 |:---:|------|:---:|
 | 1 | **Foundation**: Separate Harness core from Domain layer | ✅ Done |
-| 2 | **Tool Integration**: 5-stage search cleaning pipeline + multi-backend adapters | ✅ Done |
-| 3 | **Memory & Context**: Incremental turn compression + working memory + token management | 🚧 Next |
-| 4 | **Evaluation Framework**: Fixture simulation + 5-dimension scorer + reliability analysis | 📋 Planned |
+| 2 | **Tool Integration**: 9-stage search cleaning pipeline + multi-backend adapters | ✅ Done |
+| 3 | **Memory & Context**: Incremental compression + fact reconciliation + context assembly | ✅ Done |
+| 4 | **Evaluation Framework**: Fixture simulation + 5-dimension scorer + reliability analysis | 🚧 Next |
 | 5 | **Polish**: Unit tests + multi-industry fixtures + frontend visualization | 📋 Planned |
 
 ## Limitations

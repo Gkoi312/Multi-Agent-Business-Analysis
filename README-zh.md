@@ -23,11 +23,16 @@
 
 - 基于 `LangGraph` 构建的**可插拔领域多智能体**工作流
 - **Harness + Domain 分层架构**：引擎与业务逻辑解耦，换领域只需写 adapter
+- **SqliteSaver 持久化检查点**：任务失败后从精确失败节点恢复，服务重启不丢进度，零 token 浪费
 - 人工参与闭环的分析师审核与重生成（Human-in-the-Loop）
 - 并行访谈（Fan-out）+ 并行报告撰写流水线
+- **9 级搜索清洗管线**（URL 规范化 → 清洗 → 去重 → 近似去重 → 相关性 → 质量 → 结构化 → 安全守卫 → 格式化）
+- **7 大搜索适配器**：Serper、Tavily、Bocha、SEC EDGAR、CNINFO、GitHub、Jina/Direct Reader
+- **4.5K 行记忆系统**：增量压缩、SPDV 事实协调、上下文窗口管理、token 预算强制执行
+- 中文报告输出：楷体排版、小四字号、两端对齐、CJK 字体 PDF
 - 支持导出 `DOCX` 与 `PDF` 双格式报告
 - 异步任务运行时：任务状态持久化、事件日志、失败重试、重启恢复
-- 多模型提供方支持：`openai`、`google`、`groq`
+- 多模型提供方支持：`openai`、`google`、`groq`、`deepseek`
 
 ## 为什么做这个项目
 
@@ -39,19 +44,23 @@
 
 - 使用 `LangGraph` 进行多智能体编排
 - 设计领域与引擎分离的 Agent 平台架构
+- 实现持久化检查点与精确节点恢复（SqliteSaver）
+- 构建记忆管理系统（事实协调、增量压缩、上下文组装）
 - 在智能体工作流中加入人工审批环节
 - 在 Web 应用中处理长耗时异步任务
-- 结合 LLM 输出与传统文档导出的报告生成流程
+- 结合 LLM 输出与传统文档导出的中文报告生成流程
 - 构建 Agent 评测框架与可靠性分析体系
 
 ## 当前状态
 
-- ✅ Phase 1 完成：Harness 核心层与领域层分离
-- ✅ 完整 API + SPA 流程：注册/登录 → 提交公司信息 → 生成分析师草案 → 人工反馈 → 报告生成 → 导出
-- ✅ 异步任务运行时，支持状态持久化、事件流、失败重试
-- ✅ 多模型提供方切换：`openai`、`google`、`groq`
-- 🚧 Phase 2 进行中：工具集成与数据清洗管线
-- 📋 Phase 3-5：记忆管理 → 评测框架 → 补充打磨
+- ✅ **Phase 1 完成**：Harness 核心层与领域层分离
+- ✅ **Phase 2 完成**：工具集成 — ToolRegistry + ToolPipeline + 9 级清洗管线 + 7 大搜索适配器
+- ✅ **Phase 3 完成**：记忆管理 — 增量压缩、事实协调、上下文组装、token 预算控制
+- ✅ 完整 API + SPA 流程：注册/登录 → 提交公司信息 → 生成分析师 → 人工反馈 → 报告生成 → 导出
+- ✅ SqliteSaver 持久化检查点 — 精确节点恢复，服务重启不丢进度
+- ✅ 多模型提供方：`openai`、`google`、`groq`、`deepseek`
+- 🚧 **Phase 4 进行中**：评测框架（Fixture 仿真、评分、可靠性分析）
+- 📋 Phase 5：补充打磨（测试、多行业 Fixture、前端增强）
 
 ## 核心能力
 
@@ -75,10 +84,11 @@
 
 - Python 3.11+
 - FastAPI / Uvicorn
-- LangGraph / LangChain
-- Tavily Search
+- LangGraph / LangChain / `langgraph-checkpoint-sqlite`
+- Serper / Tavily / Bocha / SEC EDGAR / CNINFO / GitHub — 多后端搜索
+- Jina Reader / Direct Reader — URL 转文本浏览
 - SQLAlchemy + SQLite 用户账户存储
-- `python-docx` + `reportlab` 报告导出
+- `python-docx` + `reportlab`（CJK TTFont）报告导出
 - `structlog` 结构化日志
 - Jinja2 模板化 Prompt 管理
 - React / Vite / React Router
@@ -415,9 +425,9 @@ awaiting_feedback（待反馈）
 | Phase | 内容 | 状态 |
 |:---:|------|:---:|
 | 1 | **基础重构**：Harness 层与 Domain 层分离 | ✅ 完成 |
-| 2 | **工具集成与数据清洗**：5 阶段搜索结果清洗管线 | 🚧 计划中 |
-| 3 | **记忆管理与上下文压缩**：逐轮增量压缩 + 工作记忆 + Token 管理 | 📋 计划中 |
-| 4 | **评测框架**：Fixture 仿真 + 5 维度 Scorer + 可靠性分析 | 📋 计划中 |
+| 2 | **工具集成与数据清洗**：9 级搜索清洗管线 + 多后端适配器 | ✅ 完成 |
+| 3 | **记忆管理与上下文压缩**：增量压缩 + 事实协调 + 上下文组装 | ✅ 完成 |
+| 4 | **评测框架**：Fixture 仿真 + 5 维度 Scorer + 可靠性分析 | 🚧 下一步 |
 | 5 | **补充打磨**：单元测试 + 多行业 Fixture + 前端可视化增强 | 📋 计划中 |
 
 ## 常见问题
