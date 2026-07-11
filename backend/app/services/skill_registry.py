@@ -46,19 +46,6 @@ class SkillRegistry:
         self.base_dir = base_dir
 
     # ------------------------------------------------------------------
-    def list_industry_packs(self) -> list[str]:
-        """Subdirectory names under ``skills/`` that contain ``*.md`` files."""
-        if not self.base_dir.exists():
-            return []
-        out: list[str] = []
-        for p in self.base_dir.iterdir():
-            if not p.is_dir():
-                continue
-            if list(p.glob("*.md")):
-                out.append(p.name.lower())
-        return sorted(set(out))
-
-    # ------------------------------------------------------------------
     def load_skill_pack(self, industry_pack: str) -> dict[str, Any]:
         """Load all skills and domain memory from an industry pack.
 

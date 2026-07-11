@@ -142,13 +142,11 @@ class AutonomousReportGenerator:
             )
         return "\n\n---\n\n".join(parts)
 
-    def classify_company_type(self, state: ResearchGraphState):
+    def classify_company_type(self, _state: ResearchGraphState):
         """Always use 'ai' skill pack — the single company type for AI tech research."""
         return {
             "company_type": "ai",
-            "company_type_confidence": 1.0,
-            "company_type_source": "hardcoded",
-            "workflow_events": [{"event": "company_type.classified", "payload": {"industry_pack": "ai", "source": "hardcoded"}}],
+            "workflow_events": [{"event": "company_type.classified", "payload": {"company_type": "ai"}}],
         }
 
     def assemble_skills(self, state: ResearchGraphState):
@@ -172,7 +170,7 @@ class AutonomousReportGenerator:
                 {
                     "event": "skills.assembled",
                     "payload": {
-                        "industry_pack": company_type,
+                        "company_type": company_type,
                         "skill_count": len(skills),
                     },
                 }

@@ -218,9 +218,6 @@ export function TaskDetailPage() {
                   <strong>Type:</strong> {getTaskTypeLabel(task.task_type)}
                 </div>
                 <div>
-                  <strong>Industry:</strong> {task.industry_pack || "—"}
-                </div>
-                <div>
                   <strong>Max analysts:</strong> {task.max_analysts}
                 </div>
                 <div>

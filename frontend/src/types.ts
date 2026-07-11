@@ -18,7 +18,6 @@ export type Task = {
   company_name: string;
   focus: string;
   target_role: string;
-  industry_pack: string;
   max_analysts: number;
   status: string;
   thread_id: string;

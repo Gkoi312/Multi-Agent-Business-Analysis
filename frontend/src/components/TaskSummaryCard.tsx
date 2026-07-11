@@ -36,7 +36,6 @@ export function TaskSummaryCard({ task, state }: TaskSummaryCardProps) {
           <h3>{task.company_name}</h3>
           <p className="muted">
             {getTaskTypeLabel(task.task_type)}
-            {task.industry_pack ? ` · ${task.industry_pack}` : ""}
             {task.max_analysts ? ` · ${task.max_analysts} analysts` : ""}
           </p>
         </div>

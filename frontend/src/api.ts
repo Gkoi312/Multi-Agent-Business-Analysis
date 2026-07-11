@@ -56,14 +56,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({}),
     }),
-  listSkillPacks: () => request<{ items: string[] }>("/skill-packs"),
   createReport: (payload: {
     company_name: string;
     focus: string;
     target_role: string;
     max_analysts: number;
-    industry_pack: string;
-    task_type?: string;
   }) =>
     request<{ task: Task }>("/reports", {
       method: "POST",

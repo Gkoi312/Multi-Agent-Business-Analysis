@@ -15,10 +15,6 @@ class DueDiligenceRequest(BaseModel):
     focus: str = Field("", description="Optional focus areas")
     target_role: str = Field("", description="Optional role context")
     max_analysts: int = Field(3, description="Number of analyst personas to create")
-    industry_pack: str = Field(
-        default="",
-        description="Deprecated — no longer required. Skill pack is always 'ai'.",
-    )
     task_type: str = Field(
         default="due_diligence",
         description="Task type slug — maps to a domain adapter",
@@ -63,7 +59,6 @@ class TaskResponse(BaseModel):
     company_name: str
     focus: str = ""
     target_role: str = ""
-    industry_pack: str = ""
     max_analysts: int = 3
     status: str
     thread_id: str = ""

@@ -101,7 +101,6 @@ class TaskRuntime:
             "focus": _params.get("focus", ""),
             "target_role": _params.get("target_role", ""),
             "max_analysts": int(_params.get("max_analysts", 3)),
-            "industry_pack": str(_params.get("industry_pack", "") or "").strip(),
             # -- domain-populated fields (initialised empty) --
             "analysts_preview": [],
             "analyst_version": 0,

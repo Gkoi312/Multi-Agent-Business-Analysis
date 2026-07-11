@@ -25,9 +25,6 @@ class GenerateAnalystsState(TypedDict):
     report_kind: str
     focus: str
     target_role: str
-    company_type: str
-    company_type_confidence: float
-    company_type_source: str  # manual / fallback
     skill_bundle: list[dict[str, Any]]
     analysts: list[Analyst]
 
@@ -64,10 +61,7 @@ class ResearchGraphState(TypedDict):
     report_kind: str
     max_analysts: int
     max_num_turns: Annotated[int, keep_latest]
-    industry_pack: str
     company_type: str
-    company_type_confidence: Annotated[float, keep_latest]
-    company_type_source: str  # manual / fallback
     planner_enabled: Annotated[bool, keep_latest]
     review_enabled: Annotated[bool, keep_latest]
     human_analyst_feedback: str
