@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../api";
 import { RequireAuth } from "../components/RequireAuth";
-import type { Task, TaskEvent, TaskMetrics } from "../types";
+import type { Task, TaskMetrics } from "../types";
 
 const ACTIVE_STATUSES = new Set(["pending", "running_generation", "running_feedback"]);
 
@@ -19,29 +19,6 @@ function getStatusLabel(status: string) {
   return statusLabels[status] ?? status;
 }
 
-function getEventLabel(event: string) {
-  const eventLabels: Record<string, string> = {
-    "task.created": "任务已创建",
-    "task.started": "任务已启动",
-    "task.completed": "任务状态已更新",
-    "task.failed": "任务失败",
-    "task.interrupted": "任务中断",
-    "feedback.submitted": "反馈已提交",
-    "analyst.regenerated": "分析师已重新生成",
-    "workflow.configured": "工作流已配置",
-    "workflow.skills.assembled": "技能已加载",
-    "workflow.report.status": "报告状态已更新",
-    "company_type.classified": "公司类型已分类",
-    "skills.assembled": "技能已组装",
-    "planner.completed": "研究计划已就绪",
-    "planner.skipped": "已跳过规划",
-    "review.report.completed": "报告审核已完成",
-    "review.report.skipped": "已跳过报告审核",
-    "task.evaluation.completed": "评估已完成",
-  };
-  return eventLabels[event] ?? event;
-}
-
 function getTaskTypeLabel(taskType: string) {
   const labels: Record<string, string> = {
     due_diligence: "AI 科技公司调研",
@@ -54,7 +31,6 @@ export function TaskDetailPage() {
   const location = useLocation();
   const { taskId = "" } = useParams();
   const [task, setTask] = useState<Task | null>(null);
-  const [events, setEvents] = useState<TaskEvent[]>([]);
   const [metrics, setMetrics] = useState<TaskMetrics | null>(null);
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
@@ -78,14 +54,12 @@ export function TaskDetailPage() {
 
     const load = async () => {
       try {
-        const [nextTask, nextEvents, nextMetrics] = await Promise.all([
+        const [nextTask, nextMetrics] = await Promise.all([
           api.getTask(taskId),
-          api.getTaskEvents(taskId),
           api.getTaskMetrics(taskId),
         ]);
         if (!cancelled) {
           setTask(nextTask);
-          setEvents(nextEvents.events);
           if (nextMetrics) setMetrics(nextMetrics);
           setError("");
         }
@@ -406,29 +380,6 @@ export function TaskDetailPage() {
                 ) : null}
               </section>
             ) : null}
-
-            {/* Events */}
-            <section className="subsection">
-              <h2>事件日志</h2>
-              {!events.length ? <p className="muted">暂无事件。</p> : null}
-              {events.length > 0 ? (
-                <div className="event-log-scroll">
-                  <div className="event-list">
-                    {events.map((event) => (
-                      <article className="event-item" key={`${event.task_id}-${event.ts}-${event.event}`}>
-                        <div className="event-row">
-                          <strong>{getEventLabel(event.event)}</strong>
-                          <span className="muted">
-                            {new Date(event.ts * 1000).toLocaleString()}
-                          </span>
-                        </div>
-                        <pre>{JSON.stringify(event.payload, null, 2)}</pre>
-                      </article>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-            </section>
           </>
         ) : null}
       </section>
