@@ -9,21 +9,19 @@ type TaskSummaryCardProps = {
 
 function getStatusLabel(status: string) {
   const statusLabels: Record<string, string> = {
-    pending: "Pending",
-    running_generation: "Generating",
-    awaiting_feedback: "Awaiting feedback",
-    running_feedback: "Applying feedback",
-    failed: "Failed",
-    completed: "Completed",
+    pending: "待处理",
+    running_generation: "生成中",
+    awaiting_feedback: "等待反馈",
+    running_feedback: "处理反馈中",
+    failed: "失败",
+    completed: "已完成",
   };
   return statusLabels[status] ?? status;
 }
 
 function getTaskTypeLabel(taskType: string) {
   const labels: Record<string, string> = {
-    due_diligence: "Due Diligence",
-    stock_analysis: "Stock Analysis",
-    legal_review: "Legal Review",
+    due_diligence: "AI 科技公司调研",
   };
   return labels[taskType] ?? taskType;
 }
@@ -36,31 +34,31 @@ export function TaskSummaryCard({ task, state }: TaskSummaryCardProps) {
           <h3>{task.company_name}</h3>
           <p className="muted">
             {getTaskTypeLabel(task.task_type)}
-            {task.max_analysts ? ` · ${task.max_analysts} analysts` : ""}
+            {task.max_analysts ? ` · ${task.max_analysts} 位分析师` : ""}
           </p>
         </div>
         <span className={`status-pill status-${task.status}`}>{getStatusLabel(task.status)}</span>
       </div>
       <p>
-        <strong>Focus:</strong> {task.focus || "Default focus"}
+        <strong>关注点：</strong> {task.focus || "默认关注点"}
       </p>
       <p>
-        <strong>Target role:</strong> {task.target_role || "Not specified"}
+        <strong>目标角色：</strong> {task.target_role || "未指定"}
       </p>
       {task.report_review_status ? (
         <p>
-          <strong>Review:</strong> {task.report_review_status}
+          <strong>审核：</strong> {task.report_review_status}
         </p>
       ) : null}
       <p>
-        <strong>Updated:</strong> {new Date(task.updated_at * 1000).toLocaleString()}
+        <strong>更新于：</strong> {new Date(task.updated_at * 1000).toLocaleString()}
       </p>
       <Link
         className="secondary-button link-button"
         state={state}
         to={task.status === "completed" ? `/tasks/${task.id}/report` : `/tasks/${task.id}`}
       >
-        {task.status === "completed" ? "View report" : "View details"}
+        {task.status === "completed" ? "查看报告" : "查看详情"}
       </Link>
     </article>
   );

@@ -11,9 +11,9 @@ function fileNameFromPath(path: string) {
 
 function getReviewLabel(status: string) {
   const labels: Record<string, string> = {
-    pass: "Passed",
-    needs_revision: "Needs revision",
-    skipped: "Skipped",
+    pass: "通过",
+    needs_revision: "需修改",
+    skipped: "已跳过",
   };
   return labels[status] ?? status;
 }
@@ -38,7 +38,7 @@ export function TaskReportPage() {
         }
       } catch (nextError) {
         if (!cancelled) {
-          setError(nextError instanceof Error ? nextError.message : "Failed to load task");
+          setError(nextError instanceof Error ? nextError.message : "加载任务失败");
         }
       } finally {
         if (!cancelled) {
@@ -74,37 +74,37 @@ export function TaskReportPage() {
   return (
     <RequireAuth>
       <section className="panel">
-        {loading ? <p>Loading report…</p> : null}
+        {loading ? <p>加载报告中…</p> : null}
         {error ? <p className="error-text">{error}</p> : null}
         {task && !loading ? (
           <>
             <div className="section-header">
               <div>
-                <h1>Report · {task.company_name}</h1>
+                <h1>报告 · {task.company_name}</h1>
                 <p className="muted">
                   {task.task_type !== "due_diligence"
-                    ? `Task type: ${task.task_type} · `
+                    ? `任务类型：${task.task_type} · `
                     : ""}
-                  {task.analysts_preview.length} analyst(s) · v{task.analyst_version}
+                  {task.analysts_preview.length} 位分析师 · v{task.analyst_version}
                 </p>
               </div>
               <div className="button-row">
                 <Link className="secondary-button link-button" to={`/tasks/${task.id}`}>
-                  Task details
+                  任务详情
                 </Link>
                 <Link className="secondary-button link-button" to="/tasks">
-                  All tasks
+                  全部任务
                 </Link>
                 <Link className="primary-button link-button" to="/dashboard">
-                  New report
+                  新建报告
                 </Link>
               </div>
             </div>
 
             {task.status !== "completed" ? (
               <p className="muted">
-                Not finished yet ({task.status}). Go back to{" "}
-                <Link to={`/tasks/${task.id}`}>task details</Link> to follow up.
+                尚未完成（{task.status}）。返回
+                <Link to={`/tasks/${task.id}`}>任务详情</Link>继续跟进。
               </p>
             ) : null}
 
@@ -113,9 +113,9 @@ export function TaskReportPage() {
                 {/* Review status */}
                 {task.report_review_status ? (
                   <section className="subsection">
-                    <h2>Quality review</h2>
+                    <h2>质量审核</h2>
                     <p>
-                      Status:{" "}
+                      状态：{" "}
                       <span className={`status-pill status-${task.report_review_status === "pass" ? "completed" : "failed"}`}>
                         {getReviewLabel(task.report_review_status)}
                       </span>
@@ -128,13 +128,12 @@ export function TaskReportPage() {
 
                 {/* Risk distribution */}
                 <section className="subsection">
-                  <h2>Risk distribution</h2>
+                  <h2>风险分布</h2>
                   <p className="muted">
-                    Counts of High / Medium / Low entries parsed from the &quot;Risk Assessment&quot; section
-                    (overview only).
+                    从「风险评估」章节中解析出的高 / 中 / 低风险条目数量（概览）。
                   </p>
                   {riskParts.total === 0 ? (
-                    <p className="muted">No graded risk lines parsed; qualitative risk text may still appear in the full report.</p>
+                    <p className="muted">未解析到风险等级条目；完整报告中可能仍包含定性风险描述。</p>
                   ) : null}
                   <div className="risk-viz">
                     <div className="risk-viz-bar" aria-hidden={riskParts.total === 0}>
@@ -143,30 +142,30 @@ export function TaskReportPage() {
                           <div
                             className="risk-viz-seg risk-viz-high"
                             style={{ width: `${(riskParts.high / riskParts.total) * 100}%` }}
-                            title={`High: ${riskParts.high}`}
+                            title={`高：${riskParts.high}`}
                           />
                           <div
                             className="risk-viz-seg risk-viz-medium"
                             style={{ width: `${(riskParts.medium / riskParts.total) * 100}%` }}
-                            title={`Medium: ${riskParts.medium}`}
+                            title={`中：${riskParts.medium}`}
                           />
                           <div
                             className="risk-viz-seg risk-viz-low"
                             style={{ width: `${(riskParts.low / riskParts.total) * 100}%` }}
-                            title={`Low: ${riskParts.low}`}
+                            title={`低：${riskParts.low}`}
                           />
                         </>
                       ) : null}
                     </div>
                     <ul className="risk-viz-legend">
                       <li>
-                        <span className="risk-dot risk-viz-high" /> High: {riskParts.high}
+                        <span className="risk-dot risk-viz-high" /> 高：{riskParts.high}
                       </li>
                       <li>
-                        <span className="risk-dot risk-viz-medium" /> Medium: {riskParts.medium}
+                        <span className="risk-dot risk-viz-medium" /> 中：{riskParts.medium}
                       </li>
                       <li>
-                        <span className="risk-dot risk-viz-low" /> Low: {riskParts.low}
+                        <span className="risk-dot risk-viz-low" /> 低：{riskParts.low}
                       </li>
                     </ul>
                   </div>
@@ -174,19 +173,19 @@ export function TaskReportPage() {
 
                 {/* Final recommendations */}
                 <section className="subsection">
-                  <h2>Final recommendations (snippet)</h2>
+                  <h2>最终建议（摘要）</h2>
                   {task.final_recommendation ? (
                     <p className="report-summary-text">{task.final_recommendation}</p>
                   ) : (
-                    <p className="muted">No excerpt yet; see the full report for detail.</p>
+                    <p className="muted">暂无摘要，请查看完整报告了解详情。</p>
                   )}
                 </section>
 
                 {/* Downloads */}
                 <section className="subsection">
-                  <h2>Downloads</h2>
+                  <h2>下载</h2>
                   {!downloadLinks.length ? (
-                    <p className="muted">Report files are not available yet. Retry from task details or contact an admin.</p>
+                    <p className="muted">报告文件暂不可用。请从任务详情页重试或联系管理员。</p>
                   ) : (
                     <div className="button-row">
                       {downloadLinks.map((item) => (
@@ -197,7 +196,7 @@ export function TaskReportPage() {
                           rel="noreferrer"
                           target="_blank"
                         >
-                          Download {item.label}
+                          下载 {item.label}
                         </a>
                       ))}
                     </div>

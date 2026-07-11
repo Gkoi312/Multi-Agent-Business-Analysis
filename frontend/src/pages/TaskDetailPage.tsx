@@ -9,44 +9,42 @@ const ACTIVE_STATUSES = new Set(["pending", "running_generation", "running_feedb
 
 function getStatusLabel(status: string) {
   const statusLabels: Record<string, string> = {
-    pending: "Pending",
-    running_generation: "Generating",
-    awaiting_feedback: "Awaiting feedback",
-    running_feedback: "Applying feedback",
-    failed: "Failed",
-    completed: "Completed",
+    pending: "待处理",
+    running_generation: "生成中",
+    awaiting_feedback: "等待反馈",
+    running_feedback: "处理反馈中",
+    failed: "失败",
+    completed: "已完成",
   };
   return statusLabels[status] ?? status;
 }
 
 function getEventLabel(event: string) {
   const eventLabels: Record<string, string> = {
-    "task.created": "Task created",
-    "task.started": "Task started",
-    "task.completed": "Task status updated",
-    "task.failed": "Task failed",
-    "task.interrupted": "Task interrupted",
-    "feedback.submitted": "Feedback submitted",
-    "analyst.regenerated": "Analysts regenerated",
-    "workflow.configured": "Workflow configured",
-    "workflow.skills.assembled": "Skills assembled",
-    "workflow.report.status": "Report status updated",
-    "company_type.classified": "Company type classified",
-    "skills.assembled": "Skills assembled",
-    "planner.completed": "Research plan ready",
-    "planner.skipped": "Planner skipped",
-    "review.report.completed": "Report review completed",
-    "review.report.skipped": "Report review skipped",
-    "task.evaluation.completed": "Evaluation completed",
+    "task.created": "任务已创建",
+    "task.started": "任务已启动",
+    "task.completed": "任务状态已更新",
+    "task.failed": "任务失败",
+    "task.interrupted": "任务中断",
+    "feedback.submitted": "反馈已提交",
+    "analyst.regenerated": "分析师已重新生成",
+    "workflow.configured": "工作流已配置",
+    "workflow.skills.assembled": "技能已加载",
+    "workflow.report.status": "报告状态已更新",
+    "company_type.classified": "公司类型已分类",
+    "skills.assembled": "技能已组装",
+    "planner.completed": "研究计划已就绪",
+    "planner.skipped": "已跳过规划",
+    "review.report.completed": "报告审核已完成",
+    "review.report.skipped": "已跳过报告审核",
+    "task.evaluation.completed": "评估已完成",
   };
   return eventLabels[event] ?? event;
 }
 
 function getTaskTypeLabel(taskType: string) {
   const labels: Record<string, string> = {
-    due_diligence: "Due Diligence",
-    stock_analysis: "Stock Analysis",
-    legal_review: "Legal Review",
+    due_diligence: "AI 科技公司调研",
   };
   return labels[taskType] ?? taskType;
 }
@@ -72,7 +70,7 @@ export function TaskDetailPage() {
   useEffect(() => {
     if (!taskId) {
       setLoading(false);
-      setError("Missing task id.");
+      setError("缺少任务 ID。");
       return undefined;
     }
 
@@ -93,7 +91,7 @@ export function TaskDetailPage() {
         }
       } catch (nextError) {
         if (!cancelled) {
-          setError(nextError instanceof Error ? nextError.message : "Failed to load task");
+          setError(nextError instanceof Error ? nextError.message : "加载任务失败");
         }
       } finally {
         if (!cancelled) {
@@ -130,7 +128,7 @@ export function TaskDetailPage() {
       setFeedback("");
       setError("");
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to submit feedback");
+      setError(nextError instanceof Error ? nextError.message : "提交反馈失败");
     } finally {
       setSubmitting(false);
     }
@@ -147,7 +145,7 @@ export function TaskDetailPage() {
       setTask(refreshed);
       setError("");
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to retry task");
+      setError(nextError instanceof Error ? nextError.message : "重试失败");
     } finally {
       setSubmitting(false);
     }
@@ -167,7 +165,7 @@ export function TaskDetailPage() {
   return (
     <RequireAuth>
       <section className="panel">
-        {loading ? <p>Loading task…</p> : null}
+        {loading ? <p>加载任务中…</p> : null}
         {error ? <p className="error-text">{error}</p> : null}
         {task ? (
           <>
@@ -191,20 +189,20 @@ export function TaskDetailPage() {
                   }}
                   type="button"
                 >
-                  Back
+                  返回
                 </button>
                 <Link
                   className="secondary-button link-button"
                   state={{
                     returnTo: location.pathname,
-                    returnLabel: `Back to ${task.company_name}`,
+                    returnLabel: `返回 ${task.company_name}`,
                   }}
                   to="/tasks"
                 >
-                  All tasks
+                  全部任务
                 </Link>
                 <Link className="primary-button link-button" to="/dashboard">
-                  New report
+                  新建报告
                 </Link>
                 <span className={`status-pill status-${task.status}`}>{getStatusLabel(task.status)}</span>
               </div>
@@ -212,25 +210,25 @@ export function TaskDetailPage() {
 
             {/* Task metadata */}
             <section className="subsection">
-              <h2>Task info</h2>
+              <h2>任务信息</h2>
               <div className="task-meta-grid">
                 <div>
-                  <strong>Type:</strong> {getTaskTypeLabel(task.task_type)}
+                  <strong>类型：</strong> {getTaskTypeLabel(task.task_type)}
                 </div>
                 <div>
-                  <strong>Max analysts:</strong> {task.max_analysts}
+                  <strong>分析师数量：</strong> {task.max_analysts}
                 </div>
                 <div>
-                  <strong>Focus:</strong> {task.focus || "Default"}
+                  <strong>关注点：</strong> {task.focus || "默认"}
                 </div>
                 {task.target_role ? (
                   <div>
-                    <strong>Target role:</strong> {task.target_role}
+                    <strong>目标角色：</strong> {task.target_role}
                   </div>
                 ) : null}
                 {task.report_review_status ? (
                   <div>
-                    <strong>Review:</strong>{" "}
+                    <strong>审核：</strong>{" "}
                     <span className={`status-pill status-${task.report_review_status === "pass" ? "completed" : "failed"}`}>
                       {task.report_review_status}
                     </span>
@@ -246,19 +244,19 @@ export function TaskDetailPage() {
 
             {/* Analyst preview */}
             <section className="subsection">
-              <h2>Analyst preview</h2>
-              {!task.analysts_preview.length ? <p className="muted">No analyst preview yet.</p> : null}
+              <h2>分析师阵容</h2>
+              {!task.analysts_preview.length ? <p className="muted">暂无分析师数据。</p> : null}
               <div className="task-grid">
                 {task.analysts_preview.map((analyst) => (
                   <article className="panel nested-panel" key={`${analyst.name}-${analyst.role}`}>
-                    <h3>{analyst.name || "Unnamed analyst"}</h3>
+                    <h3>{analyst.name || "未命名分析师"}</h3>
                     <p>
-                      <strong>Role:</strong> {analyst.role || "—"}
+                      <strong>角色：</strong> {analyst.role || "—"}
                     </p>
                     <p>
-                      <strong>Affiliation:</strong> {analyst.affiliation || "—"}
+                      <strong>所属：</strong> {analyst.affiliation || "—"}
                     </p>
-                    <p>{analyst.description || "No description."}</p>
+                    <p>{analyst.description || "无描述。"}</p>
                   </article>
                 ))}
               </div>
@@ -267,24 +265,24 @@ export function TaskDetailPage() {
             {/* Feedback section */}
             {task.status === "awaiting_feedback" ? (
               <section className="subsection">
-                <h2>Human feedback · analysts</h2>
+                <h2>人工反馈 · 分析师</h2>
                 <p className="muted">
-                  Add notes on the analyst lineup or research focus. Non-empty feedback regenerates analysts.
-                  Submit empty feedback to continue report generation without changes.
+                  对分析师阵容或研究方向添加意见。非空反馈将重新生成分析师。
+                  提交空反馈则继续报告生成，不做更改。
                 </p>
                 <form className="form-stack" onSubmit={handleFeedbackSubmit}>
                   <label>
-                    Feedback
+                    反馈内容
                     <textarea
                       className="feedback-input"
                       onChange={(event) => setFeedback(event.target.value)}
-                      placeholder="e.g. Add a finance DD angle, or expand interview points on supply chain risk…"
+                      placeholder="例如：增加财务尽调角度，或扩展供应链风险方面的访谈要点…"
                       value={feedback}
                     />
                   </label>
                   <div className="button-row">
                     <button className="primary-button" disabled={submitting} type="submit">
-                      {submitting ? "Submitting…" : "Submit feedback"}
+                      {submitting ? "提交中…" : "提交反馈"}
                     </button>
                   </div>
                 </form>
@@ -293,10 +291,10 @@ export function TaskDetailPage() {
 
             {task.status === "running_feedback" ? (
               <section className="subsection">
-                <h2>Processing your feedback</h2>
-                <p className="muted">The pipeline is updating from your feedback—refresh or wait for the status to change.</p>
+                <h2>正在处理反馈</h2>
+                <p className="muted">系统正在根据反馈更新 — 请刷新或等待状态变更。</p>
                 <label>
-                  Submitted feedback
+                  已提交的反馈
                   <textarea
                     className="feedback-input"
                     readOnly
@@ -309,10 +307,10 @@ export function TaskDetailPage() {
             {/* Retry section */}
             {task.status === "failed" ? (
               <section className="subsection">
-                <h2>Task failed</h2>
+                <h2>任务失败</h2>
                 {task.error ? <p className="error-text">{task.error}</p> : null}
                 {task.failed_stage ? (
-                  <p className="muted">Failed at stage: {task.failed_stage}</p>
+                  <p className="muted">失败阶段：{task.failed_stage}</p>
                 ) : null}
                 <div className="button-row">
                   <button
@@ -321,7 +319,7 @@ export function TaskDetailPage() {
                     onClick={handleRetry}
                     type="button"
                   >
-                    Retry task
+                    重试任务
                   </button>
                 </div>
               </section>
@@ -330,32 +328,32 @@ export function TaskDetailPage() {
             {/* Metrics section */}
             {metrics ? (
               <section className="subsection">
-                <h2>Execution metrics</h2>
+                <h2>执行指标</h2>
                 <div className="task-meta-grid">
-                  <div><strong>Total duration:</strong> {(metrics.total_latency_ms / 1000).toFixed(1)}s</div>
-                  <div><strong>LLM calls:</strong> {metrics.call_count}</div>
-                  <div><strong>Prompt tokens:</strong> {metrics.total_prompt_tokens.toLocaleString()}</div>
-                  <div><strong>Completion tokens:</strong> {metrics.total_completion_tokens.toLocaleString()}</div>
-                  <div><strong>Total tokens:</strong> {metrics.total_tokens.toLocaleString()}</div>
+                  <div><strong>总耗时：</strong> {(metrics.total_latency_ms / 1000).toFixed(1)}s</div>
+                  <div><strong>LLM 调用：</strong> {metrics.call_count}</div>
+                  <div><strong>输入 Token：</strong> {metrics.total_prompt_tokens.toLocaleString()}</div>
+                  <div><strong>输出 Token：</strong> {metrics.total_completion_tokens.toLocaleString()}</div>
+                  <div><strong>总 Token：</strong> {metrics.total_tokens.toLocaleString()}</div>
                   <div>
-                    <strong>Est. cost:</strong> ${metrics.estimated_cost_usd.toFixed(4)}
-                    {metrics.over_budget ? <span className="error-text"> ⚠️ Over budget</span> : null}
+                    <strong>预估成本：</strong> ${metrics.estimated_cost_usd.toFixed(4)}
+                    {metrics.over_budget ? <span className="error-text"> ⚠️ 超出预算</span> : null}
                   </div>
                 </div>
                 {Object.keys(metrics.by_node).length > 0 ? (
                   <details style={{ marginTop: "0.75rem" }}>
                     <summary style={{ cursor: "pointer", fontWeight: 600 }}>
-                      Per-node breakdown ({Object.keys(metrics.by_node).length} nodes)
+                      节点明细（{Object.keys(metrics.by_node).length} 个节点）
                     </summary>
                     <div style={{ marginTop: "0.5rem", overflowX: "auto" }}>
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.88rem" }}>
                         <thead>
                           <tr style={{ borderBottom: "2px solid #e5e7eb", textAlign: "left" }}>
-                            <th style={{ padding: "6px 8px" }}>Node</th>
-                            <th style={{ padding: "6px 8px", textAlign: "right" }}>Calls</th>
-                            <th style={{ padding: "6px 8px", textAlign: "right" }}>Duration</th>
-                            <th style={{ padding: "6px 8px", textAlign: "right" }}>Tokens</th>
-                            <th style={{ padding: "6px 8px", textAlign: "right" }}>Cost</th>
+                            <th style={{ padding: "6px 8px" }}>节点</th>
+                            <th style={{ padding: "6px 8px", textAlign: "right" }}>调用次数</th>
+                            <th style={{ padding: "6px 8px", textAlign: "right" }}>耗时</th>
+                            <th style={{ padding: "6px 8px", textAlign: "right" }}>Token</th>
+                            <th style={{ padding: "6px 8px", textAlign: "right" }}>成本</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -381,14 +379,13 @@ export function TaskDetailPage() {
                               </tr>
                             ))}
                         </tbody>
-                        {/* Totals row */}
                         {(() => {
                           const totals = Object.entries(metrics.by_node).filter(([n]) => n.startsWith("_total"));
                           if (!totals.length) return null;
                           return (
                             <tfoot>
                               <tr style={{ borderTop: "2px solid #e5e7eb", fontWeight: 600 }}>
-                                <td style={{ padding: "6px 8px" }}>Total</td>
+                                <td style={{ padding: "6px 8px" }}>合计</td>
                                 <td style={{ padding: "6px 8px", textAlign: "right" }}>{metrics.call_count}</td>
                                 <td style={{ padding: "6px 8px", textAlign: "right" }}>
                                   {(metrics.total_latency_ms / 1000).toFixed(2)}s
@@ -412,8 +409,8 @@ export function TaskDetailPage() {
 
             {/* Events */}
             <section className="subsection">
-              <h2>Events</h2>
-              {!events.length ? <p className="muted">No events yet.</p> : null}
+              <h2>事件日志</h2>
+              {!events.length ? <p className="muted">暂无事件。</p> : null}
               {events.length > 0 ? (
                 <div className="event-log-scroll">
                   <div className="event-list">

@@ -26,7 +26,7 @@ export function DashboardPage() {
       });
       navigate(`/tasks/${task.id}`);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to create task");
+      setError(nextError instanceof Error ? nextError.message : "创建任务失败");
     } finally {
       setSubmitting(false);
     }
@@ -37,18 +37,18 @@ export function DashboardPage() {
       <section className="panel">
         <div className="section-header">
           <div>
-            <h1>Create research task</h1>
+            <h1>创建研究任务</h1>
             <p className="muted">AI 科技公司调研 — 提交后立即开始运行。</p>
           </div>
           <div className="button-row">
             <Link className="secondary-button link-button" to="/tasks">
-              All tasks
+              全部任务
             </Link>
           </div>
         </div>
         <form className="form-grid" onSubmit={handleSubmit}>
           <label>
-            Company name
+            公司名称
             <input
               onChange={(event) => setCompanyName(event.target.value)}
               required
@@ -56,7 +56,7 @@ export function DashboardPage() {
             />
           </label>
           <label>
-            Focus areas
+            关注领域
             <textarea
               onChange={(event) => setFocus(event.target.value)}
               rows={4}
@@ -64,14 +64,14 @@ export function DashboardPage() {
             />
           </label>
           <label>
-            Target role
+            目标角色
             <input
               onChange={(event) => setTargetRole(event.target.value)}
               value={targetRole}
             />
           </label>
           <label>
-            Max analysts: {maxAnalysts}
+            分析师数量：{maxAnalysts}
             <input
               max={8}
               min={1}
@@ -86,7 +86,7 @@ export function DashboardPage() {
             disabled={submitting}
             type="submit"
           >
-            {submitting ? "Starting…" : "Generate report"}
+            {submitting ? "启动中…" : "生成报告"}
           </button>
         </form>
       </section>
