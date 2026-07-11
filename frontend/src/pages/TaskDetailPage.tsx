@@ -36,7 +36,7 @@ function getProgressDescription(status: string, metrics: TaskMetrics | null): st
   if (status === "running_generation") return "正在分析公司类型、加载技能库、生成分析师…";
   if (status === "awaiting_feedback") return "请审核分析师阵容，提交反馈后继续。";
   if (status === "running_feedback") {
-    if (!metrics) return "正在启动调研流水线…";
+    if (!metrics) return "正在执行调研…";
     const nodes = Object.keys(metrics.by_node);
     const hasPlan = nodes.some((n) => n.includes("plan"));
     const hasInterview = nodes.some((n) => n.includes("interview") || n.includes("conduct"));
@@ -46,7 +46,7 @@ function getProgressDescription(status: string, metrics: TaskMetrics | null): st
     if (hasWrite) return "正在撰写调研报告…";
     if (hasInterview) return `正在进行专家访谈（已调用 ${metrics.call_count} 次 LLM）…`;
     if (hasPlan) return "正在执行调研计划…";
-    return "正在准备调研…";
+    return "正在执行调研…";
   }
   if (status === "completed") return "报告已生成。";
   if (status === "failed") return "任务失败。";
