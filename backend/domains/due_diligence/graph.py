@@ -126,76 +126,54 @@ class AutonomousReportGenerator:
 
     @staticmethod
     def _format_skill_catalog(skills: list[dict[str, Any]]) -> str:
+        """Format the skill catalog for the analyst creation prompt.
+
+        Each skill's full body is included so the LLM sees the complete
+        role definition, not just a summary.
+        """
         if not skills:
             return ""
-        return "\n\n".join(
-            [
-                (
-                    f"- {AutonomousReportGenerator._value(skill, 'name', '')} "
-                    f"({AutonomousReportGenerator._value(skill, 'id', '')})\n"
-                    f"  Objective: {AutonomousReportGenerator._value(skill, 'objective', '')}\n"
-                    f"  Focus: {', '.join(AutonomousReportGenerator._value(skill, 'focus_areas', []) or [])}"
-                )
-                for skill in skills
-            ]
-        )
+        parts: list[str] = []
+        for skill in skills:
+            sid = AutonomousReportGenerator._value(skill, "id", "")
+            body = AutonomousReportGenerator._value(skill, "body", "")
+            parts.append(
+                f"### Skill: {sid}\n\n{body}"
+            )
+        return "\n\n---\n\n".join(parts)
 
     def classify_company_type(self, state: ResearchGraphState):
-        hint = str(state.get("industry_pack", "") or "").strip().lower()
-        supported = set(self.skill_registry.list_industry_packs())
-        if hint and hint in supported:
-            return {
-                "company_type": hint,
-                "company_type_confidence": 1.0,
-                "company_type_source": "manual",
-                "workflow_events": [{"event": "company_type.classified", "payload": {"industry_pack": hint, "source": "manual"}}],
-            }
+        """Always use 'ai' skill pack — the single company type for AI tech research."""
         return {
-            "company_type": "unknown",
-            "company_type_confidence": 0.0,
-            "company_type_source": "fallback",
-            "workflow_events": [{"event": "company_type.classified", "payload": {"industry_pack": "unknown", "source": "fallback"}}],
+            "company_type": "ai",
+            "company_type_confidence": 1.0,
+            "company_type_source": "hardcoded",
+            "workflow_events": [{"event": "company_type.classified", "payload": {"industry_pack": "ai", "source": "hardcoded"}}],
         }
 
     def assemble_skills(self, state: ResearchGraphState):
+        """Load the skill pack for the classified company type.
+
+        Each skill is a pure Markdown file — the body is the analyst's
+        system prompt, passed directly to the LLM.
+        """
         company_type = str(state.get("company_type", "unknown") or "unknown")
         pack = self.skill_registry.load_skill_pack(company_type)
-        role_skills = list(pack.get("role_skills", []) or [])
-        research_skills = list(pack.get("research_skills", []) or [])
-        mappings = list(pack.get("mappings", []) or [])
-        source_policies = list(pack.get("source_policies", []) or [])
-        source_policy_map = {str(p.get("id", "")): p for p in source_policies if str(p.get("id", ""))}
-        selected = role_skills
+        skills = list(pack.get("role_skills", []) or [])
         domain_memory = list(pack.get("domain_memory", []) or [])
+
         if not domain_memory:
             domain_memory = self._fallback_domain_memory()
-        selected_research_skills: list[dict[str, Any]] = []
-        skill_mapping: dict[str, Any] = {}
-        if selected and research_skills:
-            research_by_id = {str(r.get("id", "")): r for r in research_skills if str(r.get("id", ""))}
-            for mapping in mappings:
-                role_id = str(mapping.get("role_skill_id", ""))
-                research_id = str(mapping.get("research_skill_id", ""))
-                if role_id and research_id and research_id in research_by_id:
-                    skill_mapping[role_id] = research_id
-            selected_ids = {str(s.get("id", "")) for s in selected}
-            for role_id in selected_ids:
-                rid = str(skill_mapping.get(role_id, ""))
-                if rid and rid in research_by_id:
-                    selected_research_skills.append(research_by_id[rid])
+
         return {
-            "skill_bundle": selected,
-            "research_skills": selected_research_skills,
-            "skill_mapping": skill_mapping,
-            "source_policy_map": source_policy_map,
+            "skill_bundle": skills,
             "domain_memory": domain_memory,
             "workflow_events": [
                 {
                     "event": "skills.assembled",
                     "payload": {
                         "industry_pack": company_type,
-                        "role_skill_count": len(selected),
-                        "research_skill_count": len(selected_research_skills),
+                        "skill_count": len(skills),
                     },
                 }
             ],
@@ -332,36 +310,34 @@ class AutonomousReportGenerator:
                 "workflow_events": [{"event": "planner.skipped", "payload": {}}],
             }
         analysts = state.get("analysts", []) or []
-        research_skills = state.get("research_skills", []) or []
-        skill_mapping = state.get("skill_mapping", {}) or {}
-        source_policy_map = state.get("source_policy_map", {}) or {}
+        skill_bundle = state.get("skill_bundle", []) or []
         plans: list[AnalystPlan] = []
+
+        # Build lookup of skill by id (filename stem)
+        skill_by_id: dict[str, dict[str, Any]] = {}
+        for s in skill_bundle:
+            sid = str(s.get("id", ""))
+            if sid:
+                skill_by_id[sid] = s
+
         coverage = [
             CoverageGoal(theme="Business model & competition", why_it_matters="Core value and moat."),
             CoverageGoal(theme="Scale & growth", why_it_matters="Growth trajectory and timing."),
             CoverageGoal(theme="Risk & compliance", why_it_matters="Downside and regulatory exposure."),
         ]
         for analyst in analysts:
-            role_skill_id = str(analyst.skill_id or "")
-            research_skill_id = str(skill_mapping.get(role_skill_id, "") or "")
-            research_skill = next((r for r in research_skills if str(r.get("id", "")) == research_skill_id), {})
-            policy_id = str(research_skill.get("source_policy_id", "") or "")
-            policy = source_policy_map.get(policy_id, {})
-            key_questions = list(research_skill.get("question_templates", []) or [])
-            if not key_questions:
-                key_questions = [
-                    f"From the '{analyst.role}' lens, what verifiable facts or data most support your view (be specific on source type or metrics)?",
-                    "Under public information and stated assumptions, which link is most uncertain and would materially change conclusions if wrong?",
-                ]
-            policy_label = str(policy.get("label", "Default search policy") or "Default search policy")
+            skill_id = str(analyst.skill_id or "")
+            skill = skill_by_id.get(skill_id, {})
+            skill_name = str(skill.get("name", analyst.role or ""))
+
             plans.append(
                 AnalystPlan(
                     analyst_name=analyst.name,
-                    skill_id=role_skill_id,
-                    research_skill_id=research_skill_id,
-                    brief=f"Collect due diligence evidence and produce the memo section from the '{analyst.role}' angle. Suggested policy: {policy_label}",
-                    key_questions=key_questions,
-                    source_policy=policy,
+                    skill_id=skill_id,
+                    research_skill_id=skill_id,
+                    brief=f"Collect due diligence evidence from the '{analyst.role}' angle. Follow the {skill_name} skill guide for focus areas and methodology.",
+                    key_questions=[],  # LLM reads questions from the skill body
+                    source_policy={},  # LLM decides site_hints from the skill body
                 )
             )
         plan = ResearchPlan(

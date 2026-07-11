@@ -7,7 +7,6 @@ from app.api.models.request_models import (
     MessageResponse,
     ReportCreateResponse,
     RetryResponse,
-    SkillPackListResponse,
     TaskActionResponse,
     TaskEventsResponse,
     TaskListResponse,
@@ -19,7 +18,6 @@ from app.api.models.request_models import (
 from app.api.services.report_service import ReportService
 from app.api.services.session_store import SESSION_STORE
 from harness.observability.task_runtime import TASK_RUNTIME
-from app.services.skill_registry import SkillRegistry
 from app.config import (
     SESSION_COOKIE_MAX_AGE,
     SESSION_COOKIE_NAME,
@@ -35,12 +33,6 @@ from app.database.db_config import (
 
 
 router = APIRouter(prefix="/api", tags=["api"])
-
-_SKILL_REGISTRY = SkillRegistry()
-
-
-def _skill_pack_ids() -> list[str]:
-    return _SKILL_REGISTRY.list_industry_packs()
 
 
 def get_db():
@@ -107,11 +99,6 @@ def _task_response(task: dict) -> TaskResponse:
     return TaskResponse(**task)
 
 
-@router.get("/skill-packs", response_model=SkillPackListResponse)
-async def list_skill_packs():
-    return SkillPackListResponse(items=_skill_pack_ids())
-
-
 def _start_generation_job(task_id: str, research_query: str, max_analysts: int):
     def _start_generation():
         service = ReportService()
@@ -123,7 +110,6 @@ def _start_generation_job(task_id: str, research_query: str, max_analysts: int):
             research_query,
             max_analysts,
             company_name,
-            str(task.get("industry_pack", "") or ""),
             focus=focus,
             target_role=target_role,
             task_id=task_id,
@@ -249,18 +235,6 @@ async def current_user(request: Request):
 @router.post("/reports", response_model=ReportCreateResponse)
 async def create_report(request: Request, payload: DueDiligenceRequest):
     username = _require_current_user(request)
-    pack_ids = _skill_pack_ids()
-    if not pack_ids:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="No skill packs configured: add a subdirectory under backend/skills containing skill_pack.yaml",
-        )
-    pack = payload.industry_pack.strip().lower()
-    if pack not in set(pack_ids):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid company type; choose a value from GET /api/skill-packs",
-        )
     research_query = _build_research_query(
         payload.company_name,
         payload.focus,
@@ -275,7 +249,6 @@ async def create_report(request: Request, payload: DueDiligenceRequest):
             "focus": payload.focus,
             "target_role": payload.target_role,
             "max_analysts": payload.max_analysts,
-            "industry_pack": pack,
         },
     )
     TASK_RUNTIME.emit_event(
@@ -283,7 +256,6 @@ async def create_report(request: Request, payload: DueDiligenceRequest):
         "workflow.configured",
         {
             "max_analysts": payload.max_analysts,
-            "industry_pack": pack,
         },
     )
 
@@ -421,12 +393,6 @@ async def retry_task(request: Request, task_id: str):
 
     failed_stage = task.get("failed_stage", "")
     if failed_stage == "running_generation":
-        pack = str(task.get("industry_pack", "") or "").strip().lower()
-        if not pack or pack not in set(_skill_pack_ids()):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Task has no valid industry skill pack; create a new task instead",
-            )
         research_query = _build_research_query(
             task.get("company_name", ""),
             task.get("focus", ""),

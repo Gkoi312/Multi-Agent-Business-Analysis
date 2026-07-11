@@ -16,9 +16,8 @@ class DueDiligenceRequest(BaseModel):
     target_role: str = Field("", description="Optional role context")
     max_analysts: int = Field(3, description="Number of analyst personas to create")
     industry_pack: str = Field(
-        ...,
-        min_length=1,
-        description="Skill folder under backend/skills (must contain skill_pack.yaml or .json)",
+        default="",
+        description="Deprecated — no longer required. Skill pack is always 'ai'.",
     )
     task_type: str = Field(
         default="due_diligence",

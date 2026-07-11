@@ -108,26 +108,24 @@ class InterviewGraphBuilder:
 
     @staticmethod
     def _format_skill_card(skill_card) -> str:
+        """Return the skill body — the full Markdown guidance document.
+
+        The LLM reads it directly; no field extraction needed.
+        """
         if not skill_card:
             return ""
-        return (
-            f"Skill ID: {InterviewGraphBuilder._value(skill_card, 'id', '')}\n"
-            f"Name: {InterviewGraphBuilder._value(skill_card, 'name', '')}\n"
-            f"Objective: {InterviewGraphBuilder._value(skill_card, 'objective', '')}\n"
-            f"Focus areas: {', '.join(InterviewGraphBuilder._value(skill_card, 'focus_areas', []) or [])}"
-        )
+        return str(InterviewGraphBuilder._value(skill_card, "body", "") or "")
 
     @staticmethod
     def _format_assigned_plan(plan: AnalystPlan | None) -> str:
         if not plan:
             return ""
-        policy = InterviewGraphBuilder._value(plan, "source_policy")
-        policy_label = InterviewGraphBuilder._value(policy, "label", "")
-        return (
-            f"Sub-task: {InterviewGraphBuilder._value(plan, 'brief', '')}\n"
-            f"Key questions: {'; '.join(InterviewGraphBuilder._value(plan, 'key_questions', []) or [])}\n"
-            f"Search policy: {policy_label}"
-        )
+        brief = InterviewGraphBuilder._value(plan, "brief", "")
+        key_questions = InterviewGraphBuilder._value(plan, "key_questions", []) or []
+        lines = [f"Sub-task: {brief}"]
+        if key_questions:
+            lines.append(f"Key questions: {'; '.join(key_questions)}")
+        return "\n".join(lines)
 
     @staticmethod
     def _format_domain_memory(memory: list[dict[str, Any]]) -> str:
@@ -139,18 +137,6 @@ class InterviewGraphBuilder:
                 f"{InterviewGraphBuilder._value(m, 'content', '')}"
                 for m in memory[:3]
             ]
-        )
-
-    @staticmethod
-    def _format_source_policy(policy: dict[str, Any] | None) -> str:
-        if not policy:
-            return ""
-        return (
-            f"Policy: {InterviewGraphBuilder._value(policy, 'label', '')}\n"
-            f"Preferred source types: {', '.join(InterviewGraphBuilder._value(policy, 'preferred_source_types', []) or [])}\n"
-            f"Site hints: {', '.join(InterviewGraphBuilder._value(policy, 'site_hints', []) or [])}\n"
-            f"Freshness: {InterviewGraphBuilder._value(policy, 'freshness_hint', '')}\n"
-            f"Guidance: {'; '.join(InterviewGraphBuilder._value(policy, 'guidance', []) or [])}"
         )
 
     @staticmethod
@@ -368,26 +354,19 @@ class InterviewGraphBuilder:
         self,
         top_docs: list[SearchDocument],
         state: InterviewState,
-        policy: dict[str, Any] | None,
     ) -> list[SearchDocument]:
         """Fetch full page content for the top K search results.
 
         Tries DirectReader first (works everywhere), falls back to Jina.
-        Only runs when the source policy sets ``deep_read: true``.
         Returns additional ``SearchDocument`` items (full pages) that will
         be appended to the original search results.
         """
-        if not policy or not self._value(policy, "deep_read", False):
-            return []
-
-        max_deep = int(self._value(policy, "deep_read_count", 3) or 3)
-
-        # Try DirectReader first (works everywhere), fall back to Jina
+        # Always deep-read top results when a browse tool is available
         reader = self.tool_registry.get_browse("direct") or self.tool_registry.get_browse("jina")
         if reader is None:
-            self.logger.warning("deep_read enabled but no browse tool registered")
             return []
 
+        max_deep = min(len(top_docs), 3)  # deep-read at most 3 pages
         fetched: list[SearchDocument] = []
         for doc in top_docs[:max_deep]:
             url = doc.canonical_url or doc.url
@@ -405,7 +384,7 @@ class InterviewGraphBuilder:
                 fetched.append(sd)
                 self.logger.info("Deep-read fetched", url=url, char_count=len(result.markdown))
             except Exception as exc:
-                self.logger.warning("Jina fetch failed", url=url, error=str(exc))
+                self.logger.warning("Browse fetch failed", url=url, error=str(exc))
                 continue
 
         if not fetched:
@@ -413,12 +392,11 @@ class InterviewGraphBuilder:
 
         # Run through the same cleaning pipeline
         target_entity = state.get("company_name", "") or ""
-        target_focus = str(self._value(policy, "focus", "") or "") if policy else ""
         source_type = top_docs[0].source_type if top_docs else "web"
 
         pipeline_ctx = ToolContext(
             target_entity=target_entity,
-            target_focus=target_focus,
+            target_focus="",
             source_type=source_type,
         )
         cleaned, trace = self.pipeline.run_with_trace(fetched, pipeline_ctx)
@@ -554,12 +532,9 @@ class InterviewGraphBuilder:
         """
         try:
             self.logger.info("Generating search query from conversation")
-            plan = state.get("assigned_plan")
-            policy = (self._value(plan, "source_policy", None) if plan else None) or None
             from harness.utils.llm_json import invoke_as_json
             search_prompt = GENERATE_SEARCH_QUERY.render(
                 assigned_plan=self._format_assigned_plan(state.get("assigned_plan")),
-                source_policy=self._format_source_policy(policy),
             )
 
             started_at = time.perf_counter()
@@ -572,23 +547,24 @@ class InterviewGraphBuilder:
 
             query_latency_ms = int((time.perf_counter() - started_at) * 1000)
 
-            provider, resolved_type = self._route_search(search_query, policy)
+            provider, resolved_type = self._route_search(search_query, None)
             search_backend = self.tool_registry.get_search(provider)
 
             if search_backend is not None:
-                site_hints = list(policy.get("site_hints", []) or []) if policy else []
+                # LLM sets site_hints + freshness_hint in SearchQuery
+                # (it reads the skill body's Search Guidance section)
                 tool_query = ToolSearchQuery(
                     query=search_query.search_query,
                     source_type=resolved_type,
-                    site_hints=site_hints,
-                    freshness_hint=str(policy.get("freshness_hint", "balanced") or "balanced") if policy else "balanced",
+                    site_hints=list(search_query.site_hints or []),
+                    freshness_hint=search_query.freshness_hint or "balanced",
                     max_results=10,
                 )
                 raw_results: list[SearchDocument] = search_backend.search(tool_query)
 
                 pipeline_ctx = ToolContext(
                     target_entity=state.get("company_name", "") or "",
-                    target_focus=str(policy.get("focus", "") or "") if policy else "",
+                    target_focus="",
                     source_type=resolved_type,
                 )
                 cleaned, trace = self.pipeline.run_with_trace(raw_results, pipeline_ctx)
@@ -601,7 +577,7 @@ class InterviewGraphBuilder:
                 )
 
                 # ---- Deep-read: fetch full page content for top results ----
-                deep_docs = self._deep_read(cleaned[:5], state, policy)
+                deep_docs = self._deep_read(cleaned[:5], state)
                 if deep_docs:
                     cleaned = cleaned + deep_docs
                     self.logger.info(

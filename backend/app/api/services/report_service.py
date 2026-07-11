@@ -140,7 +140,6 @@ class ReportService:
         research_query: str,
         max_analysts: int,
         company_name: str,
-        industry_pack: str,
         focus: str = "",
         target_role: str = "",
         task_id: str = "",
@@ -149,13 +148,11 @@ class ReportService:
         try:
             thread_id = str(uuid.uuid4())
             thread = {"configurable": {"thread_id": thread_id}}
-            pack = (industry_pack or "").strip().lower()
             self.logger.info(
                 "Starting report pipeline",
                 research_query=research_query,
                 company_name=company_name,
                 thread_id=thread_id,
-                industry_pack=pack,
                 task_id=task_id,
             )
 
@@ -171,7 +168,7 @@ class ReportService:
                     "max_num_turns": 3,
                     "planner_enabled": True,
                     "review_enabled": True,
-                    "industry_pack": pack,
+                    "industry_pack": "",
                     "company_type": "unknown",
                     "company_type_confidence": 0.0,
                     "company_type_source": "fallback",

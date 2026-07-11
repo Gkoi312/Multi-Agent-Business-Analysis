@@ -88,11 +88,6 @@ Research plan summary:
 {{ assigned_plan }}
 {% endif %}
 
-{% if source_policy %}
-Prefer the following source policy:
-{{ source_policy }}
-{% endif %}
-
 Output a JSON object with: search_query (string), source_type (one of the values above), site_hints (array of domain strings), freshness_hint ("recent"/"balanced"/"any"), reasoning (one sentence why you chose this source_type).
 """)
 
