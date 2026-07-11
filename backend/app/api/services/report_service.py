@@ -8,10 +8,33 @@ from app.utils.model_loader import ModelLoader
 from domains.due_diligence.graph import AutonomousReportGenerator
 from app.logger import GLOBAL_LOGGER
 from app.exception.custom_exception import ResearchAnalystException
-from app.config import GENERATED_REPORT_DIR
-from langgraph.checkpoint.memory import MemorySaver
+from app.config import GENERATED_REPORT_DIR, RUNTIME_DIR
 
-_shared_memory = MemorySaver()
+
+def _create_checkpointer():
+    """Create a persistent SqliteSaver-backed checkpointer.
+
+    Falls back to MemorySaver if langgraph-checkpoint-sqlite is not installed.
+    """
+    db_path = os.fspath(RUNTIME_DIR / "checkpoints.db")
+    os.makedirs(os.fspath(RUNTIME_DIR), exist_ok=True)
+    try:
+        import sqlite3
+        from langgraph.checkpoint.sqlite import SqliteSaver
+
+        GLOBAL_LOGGER.info("Using SqliteSaver for persistent checkpoints", db_path=db_path)
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        return SqliteSaver(conn)
+    except ImportError:
+        from langgraph.checkpoint.memory import MemorySaver
+        GLOBAL_LOGGER.warning(
+            "langgraph-checkpoint-sqlite not installed; "
+            "using MemorySaver (checkpoints will not survive restarts)"
+        )
+        return MemorySaver()
+
+
+_shared_checkpointer = _create_checkpointer()
 
 
 def _feed_metrics(task_id: str, state_values: dict[str, Any]) -> None:
@@ -60,7 +83,7 @@ class ReportService:
     def __init__(self):
         self.llm = ModelLoader().load_llm()
         self.reporter = AutonomousReportGenerator(self.llm)
-        self.reporter.memory = _shared_memory
+        self.reporter.memory = _shared_checkpointer
         self.graph = self.reporter.build_graph()
         self.logger = GLOBAL_LOGGER.bind(module="ReportService")
 
@@ -146,10 +169,11 @@ class ReportService:
         focus: str = "",
         target_role: str = "",
         task_id: str = "",
+        thread_id: str = "",
     ):
         """Trigger the autonomous report pipeline."""
         try:
-            thread_id = str(uuid.uuid4())
+            thread_id = thread_id or str(uuid.uuid4())
             thread = {"configurable": {"thread_id": thread_id}}
             self.logger.info(
                 "Starting report pipeline",

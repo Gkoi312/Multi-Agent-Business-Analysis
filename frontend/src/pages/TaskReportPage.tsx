@@ -68,6 +68,12 @@ function renderMarkdown(md: string): string {
   // Remaining single newlines → <br>
   html = html.replace(/\n/g, "<br>");
 
+  // Strip <br> between block-level elements (heading→list, list→heading, etc.)
+  html = html.replace(
+    /<\/(h[3-6]|ol|ul|li|blockquote|div)><br><(h[3-6]|ol|ul|blockquote|div)/g,
+    "</$1><$2"
+  );
+
   // Wrap in a single <p> if not already wrapped
   if (!html.startsWith("<")) {
     html = `<p>${html}</p>`;

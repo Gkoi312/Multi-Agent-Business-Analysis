@@ -145,11 +145,13 @@ WRITE_SECTION = jinja_env.from_string("""
 
 [Input]<Document> snippets from retrieval and dialogue context.
 
+[Language]You MUST write the entire memo chapter in **Simplified Chinese (简体中文)**.
+
 [Output structure]Output **one chapter** only, exactly four Markdown levels:
-1. ## Section title — reflects **this analyst's lens** (e.g. "Product & monetization", "Technical moat"). Do **not** use full-report titles like "Company Overview" or "Business Breakdown".
-2. ### Key Findings — verifiable facts and judgments; inline citations **[1][2]…** (section-local numbering from [1], matching "### Sources" below).
-3. ### Risk Notes — risk / why it matters / possible impact; you may tag severity (High / Medium / Low).
-4. ### Sources — only sources actually cited in this section, listed in [1][2]… order.
+1. ## Section title — reflects **this analyst's lens** (e.g. "产品与商业化", "技术壁垒"). Do **not** use full-report titles like "公司概览" or "业务拆解".
+2. ### 关键发现 — verifiable facts and judgments; inline citations **[1][2]…** (section-local numbering from [1], matching "### 信息来源" below).
+3. ### 风险提示 — risk / why it matters / possible impact; you may tag severity (高 / 中 / 低).
+4. ### 信息来源 — only sources actually cited in this section, listed in [1][2]… order.
 
 [Length]About 500–800 words; do not name the interviewer.
 

@@ -58,7 +58,7 @@ class InterviewGraphBuilder:
         6. Conditionally continuing or stopping.
     """
 
-    def __init__(self, llm, tavily_search=None, tool_registry: ToolRegistry | None = None, pipeline: ToolPipeline | None = None, cheap_llm=None, domain_config: MemoryDomainConfig | None = None):
+    def __init__(self, llm, tavily_search=None, tool_registry: ToolRegistry | None = None, pipeline: ToolPipeline | None = None, cheap_llm=None, domain_config: MemoryDomainConfig | None = None, checkpointer=None):
         """
         Initialize the InterviewGraphBuilder.
 
@@ -70,6 +70,7 @@ class InterviewGraphBuilder:
             cheap_llm: Optional cheaper/faster LLM for compression tasks.
                        Falls back to *llm* if not provided.
             domain_config: Domain-specific memory configuration.
+            checkpointer: Optional external checkpointer (shared across graphs).
         """
         self.llm = llm
         self.cheap_llm = cheap_llm or llm
@@ -97,7 +98,7 @@ class InterviewGraphBuilder:
             token_counter=lambda x: window_mgr.estimate_tokens(str(x)),
         )
 
-        self.memory = MemorySaver()
+        self.memory = checkpointer or MemorySaver()
         self.logger = GLOBAL_LOGGER.bind(module="InterviewGraphBuilder")
 
     @staticmethod

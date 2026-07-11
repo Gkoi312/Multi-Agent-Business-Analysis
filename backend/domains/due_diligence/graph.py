@@ -20,8 +20,6 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_community.tools.tavily_search import TavilySearchResults
 
 from docx import Document
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
 
 from harness.models.agent import (
     AnalystPlan,
@@ -58,9 +56,9 @@ class AutonomousReportGenerator:
     Handles the end-to-end autonomous report generation workflow using LangGraph.
     """
 
-    def __init__(self, llm):
+    def __init__(self, llm, checkpointer=None):
         self.llm = llm
-        self.memory = MemorySaver()
+        self.memory = checkpointer or MemorySaver()
         load_dotenv()
 
         # Register tools in the global registry (idempotent — only once per process).
@@ -484,8 +482,9 @@ class AutonomousReportGenerator:
                     suggested_fix="Add a consolidated source list aligned with in-text [n] citations.",
                 )
             )
-        if "\n## Sources\n" in content:
-            body_main, sources_blob = content.rsplit("\n## Sources\n", 1)
+        if "\n## Sources\n" in content or "\n## 信息来源\n" in content:
+            split_marker = "\n## 信息来源\n" if "\n## 信息来源\n" in content else "\n## Sources\n"
+            body_main, sources_blob = content.rsplit(split_marker, 1)
             cite_nums = [int(x) for x in re.findall(r"\[(\d+)\]", body_main)]
             max_n = max(cite_nums) if cite_nums else 0
             source_lines = sum(
@@ -532,8 +531,8 @@ class AutonomousReportGenerator:
                 content, sources_blob = content.rsplit("\n## Sources\n", 1)
 
             final_report = (
-                state["introduction"] + "\n\n---\n\n" +
-                content + "\n\n---\n\n" +
+                state["introduction"] + "\n\n" +
+                content + "\n\n" +
                 state["conclusion"]
             )
             if sources_blob:
@@ -580,90 +579,246 @@ class AutonomousReportGenerator:
             raise ResearchAnalystException("Failed to save report file", e)
 
     # ----------------------------------------------------------------------
+    @staticmethod
+    def _style_docx_heading(heading, font_name: str = "楷体"):
+        """Apply Chinese-friendly styling to a docx heading paragraph."""
+        from docx.shared import Pt
+        from docx.oxml.ns import qn
+
+        for run in heading.runs:
+            run.font.name = font_name
+            run._element.rPr.rFonts.set(qn("w:eastAsia"), font_name)
+            # Keep heading sizes reasonable: level1=18pt, level2=15pt, level3=13pt
+            if heading.style.name.startswith("Heading 1"):
+                run.font.size = Pt(18)
+            elif heading.style.name.startswith("Heading 2"):
+                run.font.size = Pt(15)
+            elif heading.style.name.startswith("Heading 3"):
+                run.font.size = Pt(13)
+
+    @staticmethod
+    def _add_formatted_paragraph(doc, text: str, font_name: str = "楷体", font_size: int = 12):
+        """Add a paragraph with inline markdown parsing (**bold**, *italic*) and justified alignment."""
+        from docx.shared import Pt
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from docx.oxml.ns import qn
+        import re
+
+        para = doc.add_paragraph()
+        para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        para.paragraph_format.space_after = Pt(6)
+        para.paragraph_format.first_line_indent = Pt(0)
+
+        # Parse inline formatting: **bold** and *italic*
+        pattern = re.compile(r"(\*\*(.+?)\*\*|\*(.+?)\*)")
+        last_idx = 0
+        for match in pattern.finditer(text):
+            # Add text before this match as normal
+            prefix = text[last_idx:match.start()]
+            if prefix:
+                run = para.add_run(prefix)
+                run.font.name = font_name
+                run._element.rPr.rFonts.set(qn("w:eastAsia"), font_name)
+                run.font.size = Pt(font_size)
+
+            if match.group(2):  # **bold**
+                run = para.add_run(match.group(2))
+                run.bold = True
+            elif match.group(3):  # *italic*
+                run = para.add_run(match.group(3))
+                run.italic = True
+            run.font.name = font_name
+            run._element.rPr.rFonts.set(qn("w:eastAsia"), font_name)
+            run.font.size = Pt(font_size)
+            last_idx = match.end()
+
+        # Remaining text
+        suffix = text[last_idx:]
+        if suffix:
+            run = para.add_run(suffix)
+            run.font.name = font_name
+            run._element.rPr.rFonts.set(qn("w:eastAsia"), font_name)
+            run.font.size = Pt(font_size)
+
     def _save_as_docx(self, text: str, file_path: str):
-        """Helper: save as DOCX."""
+        """Helper: save as DOCX with Chinese formatting.
+
+        - Font: 楷体 (KaiTi), size 小四 (12pt)
+        - Alignment: justified (两端对齐)
+        - Supports inline markdown: **bold**, *italic*
+        - Converts #/##/### → heading levels, --- → page break
+        """
+        from docx.shared import Pt
+        from docx.oxml.ns import qn
+
         try:
             doc = Document()
+
+            # --- Configure default Normal style ---
+            style = doc.styles["Normal"]
+            style.font.name = "楷体"
+            style.font.size = Pt(12)  # 小四
+            style.element.rPr.rFonts.set(qn("w:eastAsia"), "楷体")
+
+            # Also set the document-level default paragraph font
+            doc.styles["Normal"].paragraph_format.space_after = Pt(6)
+
             for line in text.split("\n"):
-                if line.startswith("# "):
-                    doc.add_heading(line[2:], level=1)
-                elif line.startswith("## "):
-                    doc.add_heading(line[3:], level=2)
-                elif line.startswith("### "):
-                    doc.add_heading(line[4:], level=3)
-                else:
-                    doc.add_paragraph(line)
+                stripped = line.strip()
+
+                # --- Horizontal-rules / separators → page break ---
+                if stripped in ("---", "***", "* * *", "----", "—" * 3):
+                    doc.add_page_break()
+                    continue
+
+                # --- Headings ---
+                if stripped.startswith("# "):
+                    heading = doc.add_heading(stripped[2:], level=1)
+                    self._style_docx_heading(heading, "楷体")
+                elif stripped.startswith("## "):
+                    heading = doc.add_heading(stripped[3:], level=2)
+                    self._style_docx_heading(heading, "楷体")
+                elif stripped.startswith("### "):
+                    heading = doc.add_heading(stripped[4:], level=3)
+                    self._style_docx_heading(heading, "楷体")
+                elif stripped:
+                    # Body paragraph with inline markdown parsing
+                    self._add_formatted_paragraph(doc, stripped, "楷体", 12)
+                # else: blank line → skip (spacing already handled by paragraph spacing)
+
             doc.save(file_path)
         except Exception as e:
             self.logger.error("DOCX save failed", path=file_path, error=str(e))
             raise ResearchAnalystException("Error saving DOCX report", e)
 
-    def _save_as_pdf(self, text: str, file_path: str):
-        """Helper: save as PDF with centered text block, wrapping, and clean layout."""
-        from textwrap import wrap
-        try:
-            c = canvas.Canvas(file_path, pagesize=letter)
-            width, height = letter
+    # ----------------------------------------------------------------------
+    @staticmethod
+    def _find_cjk_font() -> tuple[str, str]:
+        """Find an available CJK font — project-bundled first, then system fallback.
 
-            # Margins and layout control
+        Returns (reportlab_font_name, filesystem_path).
+        """
+        from pathlib import Path
+        import platform
+
+        # 1) Project-bundled font (domains/ directory — works cross-platform)
+        project_font_dir = Path(__file__).resolve().parents[1]  # domains/
+        bundled = [
+            ("SimKai", project_font_dir / "simkai.ttf"),
+            ("SimSun", project_font_dir / "simsun.ttf"),
+            ("SimSun", project_font_dir / "simsun.ttc"),
+        ]
+        for name, path in bundled:
+            if path.exists():
+                return name, str(path)
+
+        # 2) System fonts
+        sys_font_dir = Path("C:/Windows/Fonts") if platform.system() == "Windows" else Path("/usr/share/fonts")
+        candidates = [
+            ("SimKai", sys_font_dir / "simkai.ttf"),
+            ("KaiTi", sys_font_dir / "STKAITI.TTF"),
+            ("SimSun", sys_font_dir / "simsun.ttc"),
+            ("SimSun", sys_font_dir / "STSONG.TTF"),
+            ("SimHei", sys_font_dir / "simhei.ttf"),
+            ("SimHei", sys_font_dir / "STXIHEI.TTF"),
+            ("SimFang", sys_font_dir / "simfang.ttf"),
+        ]
+        for name, path in candidates:
+            if path.exists():
+                return name, str(path)
+
+        # 3) Last resort: glob any CJK-looking font
+        if sys_font_dir.exists():
+            for pattern in ["*kai*", "*song*", "*hei*", "*ming*", "*Sim*", "*ST*"]:
+                matches = sorted(sys_font_dir.glob(f"{pattern}.ttf")) + sorted(sys_font_dir.glob(f"{pattern}.ttc"))
+                if matches:
+                    return "CJKFont", str(matches[0])
+
+        raise FileNotFoundError(
+            "No CJK font found. Place simkai.ttf in backend/domains/ or install a Chinese font."
+        )
+
+    def _save_as_pdf(self, text: str, file_path: str):
+        """Helper: save as PDF with CJK font support and justified layout."""
+        from reportlab.lib.pagesizes import A4
+        from reportlab.pdfgen import canvas
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        from textwrap import wrap
+
+        try:
+            # Register CJK font
+            font_name, font_path = self._find_cjk_font()
+            pdfmetrics.registerFont(TTFont(font_name, font_path))
+            self.logger.info("PDF using CJK font", font_name=font_name, path=font_path)
+
+            c = canvas.Canvas(file_path, pagesize=A4)
+            width, height = A4
+
+            # Margins
             left_margin = 80
-            right_margin = 80
+            right_margin = 60
             usable_width = width - left_margin - right_margin
             top_margin = 70
             bottom_margin = 60
             y = height - top_margin
 
-            # Fonts and styles
-            normal_font = "Helvetica"
-            bold_font = "Helvetica-Bold"
-            line_height = 15
+            normal_size = 12  # 小四
+            line_height = 18  # slightly larger for CJK readability
 
-            # Title centered at top
             lines = text.split("\n")
             for raw_line in lines:
                 line = raw_line.strip()
+
+                # Skip blank lines
                 if not line:
+                    y -= line_height * 0.6
+                    continue
+
+                # Skip separators
+                if line in ("---", "***", "* * *", "----"):
                     y -= line_height
                     continue
 
                 # Detect headings
                 if line.startswith("# "):
-                    font = bold_font
-                    size = 16
+                    size = 18
                     line = line[2:].strip()
                 elif line.startswith("## "):
-                    font = bold_font
-                    size = 13
+                    size = 15
                     line = line[3:].strip()
+                elif line.startswith("### "):
+                    size = 13
+                    line = line[4:].strip()
                 else:
-                    font = normal_font
-                    size = 11
+                    size = normal_size
 
-                # Wrap text for readable width
-                c.setFont(font, size)
-                wrapped_lines = wrap(line, width=int(usable_width / (size * 0.55)))
+                c.setFont(font_name, size)
+
+                # Wrap text for readable width (CJK chars are roughly 2× width)
+                char_width_estimate = size * 0.95  # CJK chars are close to em-width
+                chars_per_line = max(1, int(usable_width / char_width_estimate))
+                wrapped_lines = wrap(line, width=chars_per_line)
 
                 for wline in wrapped_lines:
-                    # Auto new page if near bottom
                     if y < bottom_margin:
                         c.showPage()
-                        c.setFont(font, size)
+                        c.setFont(font_name, size)
                         y = height - top_margin
 
-                    # Compute centered X position
-                    text_width = c.stringWidth(wline, font, size)
-                    x = (width - text_width) / 2  # center horizontally
+                    # Left-aligned (not centered — better for CJK body text)
+                    x = left_margin
 
                     c.drawString(x, y, wline)
                     y -= line_height
 
-            # Optional footer with page number
+            # Page numbers (numbers only, Helvetica is fine for digits)
             for page_num in range(1, c.getPageNumber() + 1):
                 c.setFont("Helvetica", 9)
                 c.drawCentredString(width / 2, 25, f"Page {page_num}")
 
             c.save()
-            self.logger.info("Centered PDF saved successfully", path=file_path)
+            self.logger.info("PDF with CJK font saved successfully", path=file_path)
 
         except Exception as e:
             self.logger.error("PDF save failed", path=file_path, error=str(e))
@@ -683,6 +838,7 @@ class AutonomousReportGenerator:
                 self.llm, self.tavily_search,
                 tool_registry=TOOL_REGISTRY,
                 cheap_llm=None,  # falls back to self.llm
+                checkpointer=self.memory,
             ).build()
 
             def initiate_all_interviews(state: ResearchGraphState):

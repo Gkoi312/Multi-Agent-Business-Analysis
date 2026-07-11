@@ -6,6 +6,8 @@ jinja_env = Environment(loader=BaseLoader())
 CREATE_ANALYSTS_PROMPT = jinja_env.from_string("""
 You are designing AI analyst personas for a due diligence project.
 
+[Language] All analyst names, roles, affiliations, and descriptions MUST be written in **Simplified Chinese (简体中文)**.
+
 Follow these rules strictly:
 
 1. Read the due diligence brief:

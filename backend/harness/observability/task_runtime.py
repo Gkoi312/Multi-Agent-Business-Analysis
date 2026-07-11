@@ -181,7 +181,7 @@ class TaskRuntime:
                     continue
                 task["status"] = "failed"
                 task["failed_stage"] = status
-                task["error"] = "Task interrupted by service reload or restart; please retry."
+                task["error"] = "Task interrupted by service reload or restart. Checkpoints are preserved — retry will resume from the last successful step."
                 task["updated_at"] = now
                 tasks[task_id] = task
                 updated_count += 1

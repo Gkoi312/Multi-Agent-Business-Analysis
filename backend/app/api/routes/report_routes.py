@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
+import uuid
 
 from app.api.models.request_models import (
     DueDiligenceRequest,
@@ -99,13 +100,18 @@ def _task_response(task: dict) -> TaskResponse:
     return TaskResponse(**task)
 
 
-def _start_generation_job(task_id: str, research_query: str, max_analysts: int):
+def _start_generation_job(task_id: str, research_query: str, max_analysts: int, *, use_thread_id: str = ""):
     def _start_generation():
         service = ReportService()
         task = TASK_RUNTIME.get_task(task_id) or {}
         company_name = task.get("company_name", "")
         focus = task.get("focus", "")
         target_role = task.get("target_role", "")
+
+        # Persist thread_id BEFORE streaming so retry can find it even on immediate failure
+        thread_id = use_thread_id or str(uuid.uuid4())
+        TASK_RUNTIME.update_task(task_id, thread_id=thread_id)
+
         result = service.start_report_generation(
             research_query,
             max_analysts,
@@ -113,6 +119,7 @@ def _start_generation_job(task_id: str, research_query: str, max_analysts: int):
             focus=focus,
             target_role=target_role,
             task_id=task_id,
+            thread_id=thread_id,
         )
         analysts_preview = result.get("analysts_preview", [])
         TASK_RUNTIME.emit_event(
@@ -132,6 +139,119 @@ def _start_generation_job(task_id: str, research_query: str, max_analysts: int):
         started_status="running_generation",
         finished_status="awaiting_feedback",
         work=_start_generation,
+    )
+
+
+def _resume_generation_job(task_id: str, thread_id: str):
+    """Resume a generation-stage graph from its last checkpoint (no wasted tokens)."""
+
+    def _resume():
+        service = ReportService()
+        thread = {"configurable": {"thread_id": thread_id}}
+
+        # Check current state — graph may already be at human_feedback (success)
+        state = service.graph.get_state(thread)
+        pending = list(getattr(state, "next", []) or [])
+        if "human_feedback" in pending:
+            analysts_preview = service._extract_analysts_preview(state.values)
+            return {
+                "next_status": "awaiting_feedback",
+                "thread_id": thread_id,
+                "analysts_preview": analysts_preview,
+                "analyst_version": 1 if analysts_preview else 0,
+                "failed_stage": "",
+            }
+
+        # Resume from last checkpoint — re-runs the failed node and continues
+        for _ in service.graph.stream(None, thread, stream_mode="values"):
+            pass
+
+        state = service.graph.get_state(thread)
+        pending = list(getattr(state, "next", []) or [])
+        if "human_feedback" in pending:
+            analysts_preview = service._extract_analysts_preview(state.values)
+            return {
+                "next_status": "awaiting_feedback",
+                "thread_id": thread_id,
+                "analysts_preview": analysts_preview,
+                "analyst_version": 1 if analysts_preview else 0,
+                "failed_stage": "",
+            }
+
+        # Graph completed without reaching human_feedback (no interrupt triggered)
+        return {
+            "next_status": "completed",
+            "thread_id": thread_id,
+            "failed_stage": "",
+        }
+
+    TASK_RUNTIME.run_in_background(
+        task_id=task_id,
+        started_status="running_generation",
+        finished_status="awaiting_feedback",
+        work=_resume,
+    )
+
+
+def _resume_feedback_job(task_id: str, thread_id: str, feedback: str):
+    """Resume a feedback-stage graph from its exact last checkpoint.
+
+    Unlike ``_start_feedback_job`` (which always forks from ``human_feedback``),
+    this resumes from wherever the graph actually stopped — preserving every
+    token spent on already-completed research nodes.
+    """
+
+    def _resume():
+        service = ReportService()
+        thread = {"configurable": {"thread_id": thread_id}}
+
+        # If the graph is still waiting at human_feedback, inject feedback first
+        state = service.graph.get_state(thread)
+        pending = list(getattr(state, "next", []) or [])
+        if "human_feedback" in pending and feedback:
+            service.graph.update_state(
+                thread,
+                {"human_analyst_feedback": feedback},
+                as_node="human_feedback",
+            )
+
+        # Resume from the last checkpoint (could be right after the failed node)
+        for _ in service.graph.stream(None, thread, stream_mode="values"):
+            pass
+
+        # Check where we landed
+        state = service.graph.get_state(thread)
+        pending = list(getattr(state, "next", []) or [])
+        if "human_feedback" in pending:
+            analysts_preview = service._extract_analysts_preview(state.values)
+            return {
+                "next_status": "awaiting_feedback",
+                "analysts_preview": analysts_preview,
+                "analyst_version": 1 if analysts_preview else 0,
+                "failed_stage": "",
+            }
+
+        result = service.get_report_status(thread_id, task_id=task_id)
+        TASK_RUNTIME.emit_event(
+            task_id,
+            "workflow.report.status",
+            {"review_status": result.get("report_review_status", "")},
+        )
+        return {
+            "docx_path": result.get("docx_path", ""),
+            "pdf_path": result.get("pdf_path", ""),
+            "risk_summary": result.get("risk_summary", {"high": 0, "medium": 0, "low": 0}),
+            "final_recommendation": result.get("final_recommendation", ""),
+            "report_review_status": result.get("report_review_status", ""),
+            "report_review_summary": result.get("report_review_summary", ""),
+            "failed_stage": "",
+        }
+
+    TASK_RUNTIME.run_in_background(
+        task_id=task_id,
+        started_status="running_feedback",
+        finished_status="completed",
+        work=_resume,
     )
 
 
@@ -398,6 +518,16 @@ async def retry_task(request: Request, task_id: str):
 
     failed_stage = task.get("failed_stage", "")
     if failed_stage == "running_generation":
+        thread_id = task.get("thread_id", "")
+        if thread_id:
+            # Resume from the last checkpoint (SqliteSaver persists it across restarts)
+            TASK_RUNTIME.update_task(task_id, status="running_generation", error="")
+            _resume_generation_job(task_id, thread_id)
+            return RetryResponse(
+                message="Retry: resuming from last checkpoint",
+                task_id=task_id,
+            )
+        # No thread_id — start fresh (pre-existing task from before this fix)
         research_query = _build_research_query(
             task.get("company_name", ""),
             task.get("focus", ""),
@@ -406,7 +536,7 @@ async def retry_task(request: Request, task_id: str):
         TASK_RUNTIME.update_task(task_id, status="running_generation", error="")
         _start_generation_job(task_id, research_query, int(task.get("max_analysts", 3) or 3))
         return RetryResponse(
-            message="Retry of generation stage started",
+            message="Retry: starting fresh (no checkpoint available)",
             task_id=task_id,
         )
     if failed_stage == "running_feedback":
@@ -418,9 +548,9 @@ async def retry_task(request: Request, task_id: str):
                 detail="Missing thread_id; cannot retry feedback stage",
             )
         TASK_RUNTIME.update_task(task_id, status="running_feedback", error="")
-        _start_feedback_job(task_id, thread_id, feedback)
+        _resume_feedback_job(task_id, thread_id, feedback)
         return RetryResponse(
-            message="Retry of feedback stage started",
+            message="Retry: resuming from last checkpoint",
             task_id=task_id,
         )
     raise HTTPException(
