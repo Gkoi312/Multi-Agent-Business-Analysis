@@ -412,6 +412,165 @@ pre {
   color: #374151;
 }
 
+/* ── Pipeline stepper ── */
+
+.pipeline-stepper {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 20px;
+  padding: 16px 20px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+}
+
+.pipeline-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  position: relative;
+  color: #9ca3af;
+  transition: color 0.3s ease;
+}
+
+.pipeline-step::after {
+  content: "";
+  position: absolute;
+  top: 18px;
+  left: calc(50% + 24px);
+  right: calc(-50% + 24px);
+  height: 2px;
+  background: #e5e7eb;
+  transition: background 0.4s ease;
+}
+
+.pipeline-step:last-child::after {
+  display: none;
+}
+
+.pipeline-step.is-done {
+  color: #16a34a;
+}
+
+.pipeline-step.is-done::after {
+  background: #16a34a;
+}
+
+.pipeline-step.is-active {
+  color: #2563eb;
+  font-weight: 700;
+}
+
+.pipeline-step.is-active::after {
+  background: #e5e7eb;
+}
+
+.pipeline-step-icon {
+  font-size: 1.3rem;
+  line-height: 1;
+  transition: transform 0.3s ease;
+}
+
+.pipeline-step.is-active .pipeline-step-icon {
+  animation: step-pulse 1.2s ease-in-out infinite;
+}
+
+.pipeline-step-label {
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+@keyframes step-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.18); }
+}
+
+/* ── Progress banner ── */
+
+.progress-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 14px 18px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  color: #1e40af;
+  font-size: 0.93rem;
+}
+
+.progress-pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #3b82f6;
+  flex-shrink: 0;
+  animation: dot-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes dot-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(1.5); }
+}
+
+.progress-desc {
+  flex: 1;
+}
+
+.elapsed-badge {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: #1d4ed8;
+  background: #dbeafe;
+  padding: 3px 10px;
+  border-radius: 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Skeleton loading ── */
+
+.skeleton-card {
+  padding: 20px;
+}
+
+.skeleton-line {
+  height: 14px;
+  border-radius: 7px;
+  background: linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 50%, #e5e7eb 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  margin-bottom: 10px;
+}
+
+.skeleton-line:last-child {
+  margin-bottom: 0;
+}
+
+.skeleton-title {
+  width: 55%;
+  height: 18px;
+  margin-bottom: 14px;
+}
+
+.skeleton-text {
+  width: 90%;
+}
+
+.skeleton-text.short {
+  width: 65%;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 @media (max-width: 720px) {
   .topbar {
     flex-wrap: wrap;
@@ -426,5 +585,25 @@ pre {
   .task-card-header,
   .event-row {
     flex-direction: column;
+  }
+
+  .pipeline-stepper {
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 12px;
+  }
+
+  .pipeline-step {
+    flex: 1 1 40%;
+    flex-direction: row;
+    gap: 6px;
+  }
+
+  .pipeline-step::after {
+    display: none;
+  }
+
+  .pipeline-step-label {
+    font-size: 0.75rem;
   }
 }
