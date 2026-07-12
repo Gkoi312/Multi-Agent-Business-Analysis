@@ -1,0 +1,25 @@
+{
+  "case_id": "comp_002_apple_ai",
+  "domain": "due_diligence",
+  "original_turn": {
+    "question": "Apple在AI战略方面有哪些最新进展？与OpenAI的合作细节是什么？",
+    "search_summary": "Apple Intelligence launched with iOS 19 in June 2025. On-device AI processing via A18 chip. Partnership with OpenAI: ChatGPT integrated into Siri, free for users, no account required. Private Cloud Compute for complex queries. 15 billion parameter on-device model. Privacy-first approach with on-device processing as default.",
+    "answer": "苹果在2025年6月随iOS 19推出了Apple Intelligence。核心是与OpenAI的合作——ChatGPT集成到Siri中，用户无需注册账号即可免费使用。技术架构上采用端侧AI处理（A18芯片），设备端模型参数规模约150亿。复杂查询通过Private Cloud Compute处理。隐私策略是默认在设备端处理，不上传数据到云端。"
+  },
+  "labeled_facts": [
+    "Apple Intelligence launched with iOS 19 in June 2025",
+    "ChatGPT integrated into Siri",
+    "No account required for ChatGPT in Siri — free for users",
+    "On-device AI processing via A18 chip",
+    "On-device model has approximately 15 billion parameters",
+    "Private Cloud Compute handles complex queries",
+    "Privacy-first: on-device processing as default"
+  ],
+  "labeled_numbers": [
+    {"value": "15", "unit": "billion_parameters", "context": "on-device model size"},
+    {"value": "2025", "unit": "year", "context": "iOS 19 launch"},
+    {"value": "19", "unit": "version", "context": "iOS version"}
+  ],
+  "expected_evidence_quality": "high",
+  "expected_unanswered": []
+}

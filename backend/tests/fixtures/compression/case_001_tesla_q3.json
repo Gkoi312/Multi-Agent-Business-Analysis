@@ -1,0 +1,31 @@
+{
+  "case_id": "comp_001_tesla_q3",
+  "domain": "due_diligence",
+  "original_turn": {
+    "question": "Tesla Q3 2025的营收和毛利率是多少？与市场预期的差距如何？",
+    "search_summary": "Tesla Q3 2025 revenue was $25.18B (+8% YoY), slightly below the $25.47B consensus. Gross margin reached 19.8%, beating estimates of 17.2%. Net income was $2.18B. Free cash flow: $2.7B. Energy storage revenue grew 52% to $2.37B.",
+    "answer": "特斯拉2025年Q3营收251.8亿美元（同比+8%），略低于市场预期的254.7亿美元。毛利率19.8%超预期（预期17.2%），净利润21.8亿美元，自由现金流27亿美元。储能业务收入增长52%至23.7亿美元。"
+  },
+  "labeled_facts": [
+    "Q3 2025 revenue: $25.18 billion",
+    "Revenue growth: 8% YoY",
+    "Revenue missed consensus by $290M ($25.47B expected)",
+    "Gross margin: 19.8% vs 17.2% consensus",
+    "Net income: $2.18B",
+    "Free cash flow: $2.7B",
+    "Energy storage revenue grew 52% to $2.37B"
+  ],
+  "labeled_numbers": [
+    {"value": "25.18", "unit": "billion_usd", "context": "Q3 2025 revenue"},
+    {"value": "8", "unit": "%", "context": "YoY revenue growth"},
+    {"value": "25.47", "unit": "billion_usd", "context": "revenue consensus"},
+    {"value": "19.8", "unit": "%", "context": "gross margin"},
+    {"value": "17.2", "unit": "%", "context": "consensus margin"},
+    {"value": "2.18", "unit": "billion_usd", "context": "net income"},
+    {"value": "2.7", "unit": "billion_usd", "context": "free cash flow"},
+    {"value": "52", "unit": "%", "context": "energy storage growth"},
+    {"value": "2.37", "unit": "billion_usd", "context": "energy storage revenue"}
+  ],
+  "expected_evidence_quality": "high",
+  "expected_unanswered": []
+}

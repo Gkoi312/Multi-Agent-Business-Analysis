@@ -1,0 +1,28 @@
+{
+  "case_id": "e2e_001_apple",
+  "company_name": "Apple Inc.",
+  "focus": "AI strategy and financial health",
+  "industry_pack": "ai",
+  "expected": {
+    "required_sections": [
+      "Company Overview",
+      "Business Breakdown",
+      "Scale & Growth",
+      "Risk Assessment",
+      "Final Recommendations",
+      "Sources"
+    ],
+    "key_facts_must_include": [
+      "Apple Intelligence",
+      "Services revenue",
+      "on-device AI"
+    ],
+    "risk_themes": [
+      "regulatory/DMA",
+      "AI competition",
+      "iPhone dependency"
+    ],
+    "min_analyst_count": 3,
+    "diverse_roles_expected": true
+  }
+}

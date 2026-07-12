@@ -1,0 +1,29 @@
+{
+  "case_id": "comp_003_bytedance",
+  "domain": "due_diligence",
+  "original_turn": {
+    "question": "字节跳动2024年的营收情况和海外业务表现如何？TikTok面临哪些监管风险？",
+    "search_summary": "ByteDance 2024 revenue reached $120B (+30% YoY). TikTok contributed ~$40B in ad revenue. US still largest single market. EU DMA compliance required by March 2025. US divestiture bill: must sell by Jan 2025 or face ban. ByteDance valuation dropped to ~$220B in secondary market. Douyin e-commerce GMV exceeded $300B.",
+    "answer": "字节跳动2024年营收约1200亿美元，同比增长30%。TikTok贡献约400亿美元的广告收入。美国仍是最大单一市场。监管方面面临两大风险：一是美国强制剥离法案要求2025年1月前出售TikTok美国业务；二是欧盟DMA合规截止日期为2025年3月。二级市场估值已降至约2200亿美元。抖音电商GMV超过3000亿人民币。"
+  },
+  "labeled_facts": [
+    "ByteDance 2024 revenue: approximately $120 billion",
+    "Revenue growth: 30% YoY",
+    "TikTok ad revenue: approximately $40 billion",
+    "US remains largest single market",
+    "US divestiture bill: sell TikTok US by January 2025 or face ban",
+    "EU DMA compliance required by March 2025",
+    "Secondary market valuation dropped to ~$220 billion",
+    "Douyin e-commerce GMV exceeded ¥300 billion"
+  ],
+  "labeled_numbers": [
+    {"value": "120", "unit": "billion_usd", "context": "2024 revenue"},
+    {"value": "30", "unit": "%", "context": "YoY growth"},
+    {"value": "40", "unit": "billion_usd", "context": "TikTok ad revenue"},
+    {"value": "220", "unit": "billion_usd", "context": "valuation"},
+    {"value": "300", "unit": "billion_cny", "context": "Douyin e-commerce GMV"},
+    {"value": "2025", "unit": "year", "context": "divestiture deadline"}
+  ],
+  "expected_evidence_quality": "high",
+  "expected_unanswered": []
+}

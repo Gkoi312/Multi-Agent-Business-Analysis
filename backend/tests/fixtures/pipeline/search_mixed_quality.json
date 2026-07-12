@@ -1,0 +1,49 @@
+{
+  "case_id": "pipe_mixed_001",
+  "description": "5 search results about Apple Inc. with varying quality: 2 relevant, 1 duplicate, 1 spam, 1 irrelevant",
+  "target_entity": "Apple Inc.",
+  "raw_results": [
+    {
+      "url": "https://techcrunch.com/2025/06/apple-intelligence-ios19",
+      "title": "Apple Intelligence Launches with iOS 19 — Full Breakdown",
+      "content": "In June 2025, Apple announced Apple Intelligence at WWDC. The new AI platform features on-device processing via the A18 chip, a 15-billion-parameter model running locally, and a partnership with OpenAI to integrate ChatGPT into Siri. Users do not need an OpenAI account. Apple emphasized privacy: most processing happens on-device, with Private Cloud Compute handling complex queries. The service is free and launches with iOS 19.",
+      "source_type": "web",
+      "label": "relevant"
+    },
+    {
+      "url": "https://techcrunch.com/2025/06/apple-intelligence-ios19?utm_source=twitter&utm_medium=social",
+      "title": "Apple Intelligence Launches with iOS 19 — Full Breakdown",
+      "content": "Apple announced Apple Intelligence at WWDC 2025.",
+      "source_type": "web",
+      "label": "duplicate",
+      "duplicate_of": 0
+    },
+    {
+      "url": "https://spam-blog.example/buy-iphone-cheap-2025",
+      "title": "Buy iPhone 16 Cheap!!! Best Deal 2025 Click Here Now",
+      "content": "iPhone iPhone iPhone BUY NOW LIMITED OFFER cheap cheap cheap DISCOUNT DISCOUNT CLICK HERE FREE SHIPPING ACT NOW BEFORE IT'S GONE!!!",
+      "source_type": "web",
+      "label": "spam"
+    },
+    {
+      "url": "https://finance.yahoo.com/quote/AAPL/key-statistics",
+      "title": "Apple Inc. (AAPL) Stock Price, News & Valuation — Yahoo Finance",
+      "content": "Apple Inc. (AAPL) closed at $198.25 on Friday. Market capitalization: $3.2 trillion. P/E ratio (TTM): 31.2. EPS (TTM): $6.36. Dividend yield: 0.48%. 52-week range: $164.07 - $220.15. Average volume: 55.2M shares. Next earnings date: January 30, 2025.",
+      "source_type": "web",
+      "label": "relevant"
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Apple_(fruit)",
+      "title": "Apple (fruit) — Simple English Wikipedia",
+      "content": "An apple is a round, edible fruit produced by an apple tree (Malus domestica). Apple trees are cultivated worldwide and are the most widely grown species in the genus Malus. The tree originated in Central Asia. Apples have been grown for thousands of years in Asia and Europe.",
+      "source_type": "web",
+      "label": "irrelevant"
+    }
+  ],
+  "expected_kept_indices": [0, 3],
+  "expected_dropped_reasons": {
+    "1": "duplicate_url",
+    "2": "low_quality",
+    "4": "low_relevance"
+  }
+}

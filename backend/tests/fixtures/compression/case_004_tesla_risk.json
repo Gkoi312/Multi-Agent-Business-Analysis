@@ -1,0 +1,25 @@
+{
+  "case_id": "comp_004_tesla_risk",
+  "domain": "due_diligence",
+  "original_turn": {
+    "question": "Tesla目前面临哪些主要风险？包括监管、竞争和供应链方面。",
+    "search_summary": "Key risks: (1) EU tariffs on China-made EVs raised to 45% — Tesla exports from Shanghai impacted. (2) BYD surpassed Tesla in global BEV sales in Q4 2024. (3) NHTSA investigating 2.4M vehicles over Full Self-Driving incidents. (4) Lithium prices volatile — key battery material. (5) Union pressure at German Gigafactory. (6) Musk's political activities creating brand reputation risk in key markets.",
+    "answer": "特斯拉面临六大主要风险。第一，欧盟对中国产电动车关税提至45%，影响上海工厂出口。第二，比亚迪2024年Q4纯电销量已超越特斯拉。第三，NHTSA正在调查240万辆配备FSD的车辆。第四，锂电池原材料锂价格波动大。第五，德国超级工厂面临工会组织压力。第六，马斯克的政治活动在欧洲等关键市场造成品牌声誉风险。"
+  },
+  "labeled_facts": [
+    "EU tariffs on China-made EVs raised to 45%",
+    "Tesla Shanghai factory exports impacted by EU tariffs",
+    "BYD surpassed Tesla in global BEV sales in Q4 2024",
+    "NHTSA investigating 2.4 million vehicles over FSD incidents",
+    "Lithium price volatility as battery material risk",
+    "Union pressure at German Gigafactory",
+    "Musk's political activities creating brand reputation risk"
+  ],
+  "labeled_numbers": [
+    {"value": "45", "unit": "%", "context": "EU tariff rate"},
+    {"value": "2.4", "unit": "million_vehicles", "context": "NHTSA investigation scope"},
+    {"value": "2024", "unit": "year", "context": "BYD surpassed Tesla"}
+  ],
+  "expected_evidence_quality": "medium",
+  "expected_unanswered": ["Impact quantification of each risk factor on Tesla's financials"]
+}

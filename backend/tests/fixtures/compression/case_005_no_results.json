@@ -1,0 +1,16 @@
+{
+  "case_id": "comp_005_no_results",
+  "domain": "due_diligence",
+  "original_turn": {
+    "question": "请搜索XYZ完全不存在的公司2025年的营收数据",
+    "search_summary": "[No relevant search results found for 'XYZ完全不存在的公司 revenue 2025'. All 10 results were dropped by the cleaning pipeline as irrelevant.]",
+    "answer": "抱歉，在所有搜索源中均未找到这家公司的相关信息。这可能意味着该公司不存在、名称拼写有误或尚未公开披露财务数据。建议确认公司全称后重试。"
+  },
+  "labeled_facts": [],
+  "labeled_numbers": [],
+  "expected_evidence_quality": "low",
+  "expected_unanswered": ["No information found for this company"],
+  "expected_no_results": true,
+  "allowed_fact_count": 0,
+  "expected_error": false
+}
