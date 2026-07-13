@@ -27,6 +27,7 @@ from harness.evaluation.scorers.source_traceability import SourceTraceabilitySco
 from harness.evaluation.scorers.compression_fidelity import (
     CompressionFidelityScorer,
     _normalize_number, _numbers_match, _extract_all_numbers_from_text,
+    _spans_overlap,
 )
 from harness.evaluation.scorers.pipeline_quality import PipelineQualityScorer
 from harness.evaluation.scorer import ScoreResult, Scorer, SCORER_REGISTRY, register_scorer
@@ -104,6 +105,150 @@ class TestNumberNormalizer:
         assert "quarter" in kinds
         assert "percentage" in kinds
         assert len(nums) >= 3
+
+
+# ============================================================================
+# Number Extraction — Precision & Overlap Prevention (Round 3 fixes)
+# ============================================================================
+
+class TestNumberExtractionPrecision:
+    """Tests for priority-ordered overlap prevention in number extraction."""
+
+    def test_exact_multi_number_extraction(self):
+        """One sentence extracts exactly 3 numbers: $85B, Q3 2025, 17%."""
+        nums = _extract_all_numbers_from_text(
+            "Revenue was $85B in Q3 2025 and margin was 17%."
+        )
+        assert len(nums) == 3, f"Expected exactly 3 numbers, got {len(nums)}: {nums}"
+        assert {(n["kind"], n["normalized_value"]) for n in nums} == {
+            ("currency", 85_000_000_000),
+            ("quarter", 20253.0),
+            ("percentage", 0.17),
+        }
+
+    def test_quarter_does_not_duplicate_year(self):
+        """Q3 2025 consumes the year span; no standalone 2025 extracted."""
+        nums = _extract_all_numbers_from_text("In Q3 2025 revenue grew.")
+        kinds = {n["kind"] for n in nums}
+        assert "quarter" in kinds
+        # Must NOT have a standalone "year" entry for 2025
+        year_nums = [n for n in nums if n["kind"] == "year"]
+        assert len(year_nums) == 0, f"Year should not be extracted separately: {year_nums}"
+
+    def test_year_not_split_into_202_and_5(self):
+        """2025 is extracted as one number, not split into 202 and 5."""
+        nums = _extract_all_numbers_from_text("The year 2025 was important.")
+        values = [n["normalized_value"] for n in nums]
+        # Must not contain 202.0 or 5.0 as separate entries when 2025.0 is present
+        assert 202.0 not in values, f"202 should not be split from 2025: {values}"
+        assert 5.0 not in values, f"5 should not be split from 2025: {values}"
+        # 2025 should be present as one number
+        assert 2025.0 in values, f"2025 should be present: {values}"
+
+    def test_q3_does_not_extract_plain_3(self):
+        """The digit 3 inside Q3 must not be extracted as a plain number."""
+        nums = _extract_all_numbers_from_text("In Q3 2025 revenue grew.")
+        # No plain "3" extracted
+        plain_threes = [n for n in nums
+                       if n["kind"] in ("count", "plain_number")
+                       and n["normalized_value"] == 3.0]
+        assert len(plain_threes) == 0, f"Plain '3' should not be extracted from Q3: {plain_threes}"
+
+    def test_currency_does_not_extract_inner_85(self):
+        """85 must not be extracted separately from $85B."""
+        nums = _extract_all_numbers_from_text("Revenue was $85B.")
+        # No plain 85 extracted
+        plain_85 = [n for n in nums
+                   if n["kind"] in ("count", "plain_number")
+                   and n["normalized_value"] == 85.0]
+        assert len(plain_85) == 0, f"Plain '85' should not be extracted from $85B: {plain_85}"
+        # $85B should be present
+        currency_nums = [n for n in nums if n["kind"] == "currency"]
+        assert len(currency_nums) >= 1
+
+    def test_17_percent_does_not_extract_plain_17(self):
+        """17 must not be extracted separately from 17%."""
+        nums = _extract_all_numbers_from_text("Margin was 17%.")
+        # 17% should be present
+        pct_nums = [n for n in nums if n["kind"] == "percentage"]
+        assert len(pct_nums) == 1
+        # No plain 17
+        plain_17 = [n for n in nums
+                   if n["kind"] in ("count", "plain_number")
+                   and n["normalized_value"] == 17.0]
+        assert len(plain_17) == 0, f"Plain '17' should not be extracted from 17%: {plain_17}"
+
+    def test_spans_overlap_helper(self):
+        """Unit test for _spans_overlap."""
+        # Overlapping
+        assert _spans_overlap((0, 5), (3, 8)) is True
+        assert _spans_overlap((3, 8), (0, 5)) is True
+        # Contained
+        assert _spans_overlap((0, 10), (2, 5)) is True
+        assert _spans_overlap((2, 5), (0, 10)) is True
+        # Adjacent (not overlapping)
+        assert _spans_overlap((0, 3), (3, 6)) is False
+        # Disjoint
+        assert _spans_overlap((0, 2), (5, 7)) is False
+        # Same span
+        assert _spans_overlap((0, 5), (0, 5)) is True
+
+
+# ============================================================================
+# Cross-Field Number Dedup (Round 3 fix)
+# ============================================================================
+
+class TestCrossFieldNumberDedup:
+    """Tests that the same number across multiple fields is counted only once."""
+
+    def test_same_number_across_fields_deduplicated(self):
+        """$85B in numbers_mentioned + facts.text + key_findings → count = 1."""
+        turn = {
+            "numbers_mentioned": [{"value": "$85B"}],
+            "facts": [{"text": "Revenue was $85B."}],
+            "key_findings": ["Revenue reached 85 billion USD."],
+        }
+        nums = CompressionFidelityScorer._extract_all_numbers(turn)
+
+        # Only ONE normalized entry for the $85B currency number
+        currency_nums = [
+            n for n in nums
+            if n["kind"] == "currency"
+            and n["normalized_value"] == 85_000_000_000
+        ]
+        assert len(currency_nums) == 1, (
+            f"Expected exactly 1 deduped currency number, got {len(currency_nums)}: {currency_nums}"
+        )
+
+        # Verify merged metadata
+        entry = currency_nums[0]
+        assert "source_fields" in entry
+        assert len(entry["source_fields"]) >= 2, (
+            f"Expected at least 2 source fields, got {entry['source_fields']}"
+        )
+        assert "numbers_mentioned" in entry["source_fields"]
+        assert "facts.text" in entry["source_fields"]
+
+    def test_same_number_dedup_yields_correct_retention(self):
+        """Cross-field dedup produces number_retention=1.0, hallucination=0.0."""
+        scorer = CompressionFidelityScorer()
+        fixture = {
+            "labeled_facts": ["Revenue was $85 billion"],
+            "labeled_numbers": [
+                {"value": "$85B", "unit": "USD", "context": "revenue"},
+            ],
+        }
+        # Same $85B appears in three fields
+        turn = {
+            "facts": [{"text": "Revenue was $85B."}],
+            "numbers_mentioned": [{"value": "$85B"}],
+            "key_findings": ["Revenue reached $85 billion USD"],
+        }
+        result = scorer.score(compressed_turn=turn, fixture=fixture)
+        num_ret = result.evidence.get("number_retention", 0)
+        num_hallu = result.evidence.get("numeric_hallucination_rate", 1)
+        assert num_ret == 1.0, f"Expected number_retention=1.0, got {num_ret}"
+        assert num_hallu == 0.0, f"Expected numeric_hallucination_rate=0.0, got {num_hallu}"
 
 
 # ============================================================================
@@ -242,6 +387,70 @@ class TestCompressionNoResult:
         scorer = CompressionFidelityScorer()
         result = scorer.score(compressed_turn={}, fixture={"labeled_facts": [], "labeled_numbers": []})
         assert result.status == "skipped" and result.eligible is False
+
+
+class TestCompressionNoResultFieldExistence:
+    """No-result scoring triggered by field EXISTENCE, not truthiness (Round 3 fix)."""
+
+    def test_expected_error_only_triggers_no_result_scoring(self):
+        """expected_error: True alone (no labeled_facts) triggers no-result path."""
+        scorer = CompressionFidelityScorer()
+        fixture = {
+            "labeled_facts": [],
+            "labeled_numbers": [],
+            "expected_error": True,
+        }
+        turn = {"facts": [], "numbers_mentioned": [], "compression_error": "timeout"}
+        result = scorer.score(compressed_turn=turn, fixture=fixture)
+        assert result.status != "skipped", (
+            f"expected_error=True should trigger no-result scoring, got {result.status}"
+        )
+        assert result.evidence.get("case_type") == "expected_no_results"
+
+    def test_allowed_fact_count_two_triggers_no_result_scoring(self):
+        """allowed_fact_count: 2 triggers no-result path even though value ≠ 0."""
+        scorer = CompressionFidelityScorer()
+        fixture = {
+            "labeled_facts": [],
+            "labeled_numbers": [],
+            "allowed_fact_count": 2,
+        }
+        turn = {"facts": [{"text": "minor note"}], "numbers_mentioned": []}
+        result = scorer.score(compressed_turn=turn, fixture=fixture)
+        assert result.status != "skipped", (
+            f"allowed_fact_count=2 should trigger no-result scoring, got {result.status}"
+        )
+        assert result.evidence.get("case_type") == "expected_no_results"
+
+    def test_expected_unanswered_false_is_evaluated(self):
+        """expected_unanswered: False triggers no-result path and is evaluated."""
+        scorer = CompressionFidelityScorer()
+        fixture = {
+            "labeled_facts": [],
+            "labeled_numbers": [],
+            "expected_unanswered": False,
+        }
+        # Turn has no unanswered — should pass
+        turn = {"facts": [], "numbers_mentioned": [], "unanswered": []}
+        result = scorer.score(compressed_turn=turn, fixture=fixture)
+        assert result.status != "skipped", (
+            f"expected_unanswered=False should trigger no-result scoring, got {result.status}"
+        )
+        assert result.status == "pass", f"Expected pass, got {result.status}: {result.issues}"
+
+    def test_expected_unanswered_false_fails_when_unanswered_present(self):
+        """expected_unanswered: False → fail if unanswered items exist."""
+        scorer = CompressionFidelityScorer()
+        fixture = {
+            "labeled_facts": [],
+            "labeled_numbers": [],
+            "expected_unanswered": False,
+        }
+        turn = {"facts": [], "numbers_mentioned": [], "unanswered": ["unexpected gap"]}
+        result = scorer.score(compressed_turn=turn, fixture=fixture)
+        assert result.status == "fail", (
+            f"Expected fail when unanswered present but expected_unanswered=False, got {result.status}"
+        )
 
 
 class TestCompressionBasics:
@@ -469,6 +678,102 @@ class TestPipelineQuality:
         assert cov == 1.0  # Both have known stage
 
 
+class TestPipelineDropStageResolution:
+    """Tests for _resolve_drop_stage matching against all stable identifiers (Round 3 fix)."""
+
+    def test_drop_stage_resolved_from_trace_fixture_doc_id(self):
+        """trace.dropped_doc_ids=["fixture_1"] matches doc.metadata["fixture_doc_id"]."""
+        doc = FakeSearchDocument(
+            url="https://example.com/doc",
+            title="Doc",
+            raw_content="Content",
+            metadata={
+                "fixture_index": 1,
+                "fixture_doc_id": "fixture_1",
+            },
+            dropped_reason="irrelevant",
+        )
+        trace = FakeStageTrace(
+            stage="relevance",
+            input_c=10, output_c=9, dur=10, reduction=10.0,
+            dropped=1, warnings=0,
+            dropped_doc_ids=["fixture_1"],
+        )
+        stage = PipelineQualityScorer._resolve_drop_stage(doc, [trace])
+        assert stage == "relevance", (
+            f"Expected 'relevance', got '{stage}'"
+        )
+
+    def test_fixture_1_does_not_match_fixture_10(self):
+        """Exact match only: fixture_1 must NOT match fixture_10 in trace lookup.
+
+        Uses an unrecognised dropped_reason so the heuristic fallback
+        doesn't accidentally match.  The trace has "fixture_10" which
+        should NOT match doc.metadata["fixture_doc_id"]="fixture_1".
+        """
+        doc = FakeSearchDocument(
+            url="https://example.com/doc",
+            title="Doc",
+            raw_content="Content",
+            metadata={
+                "fixture_index": 1,
+                "fixture_doc_id": "fixture_1",
+            },
+            dropped_reason="zzz_no_keyword_match",
+        )
+        trace = FakeStageTrace(
+            stage="relevance",
+            input_c=10, output_c=9, dur=10, reduction=10.0,
+            dropped=1, warnings=0,
+            dropped_doc_ids=["fixture_10"],
+        )
+        stage = PipelineQualityScorer._resolve_drop_stage(doc, [trace])
+        assert stage == "unknown", (
+            f"fixture_1 should NOT match fixture_10, got stage='{stage}'"
+        )
+
+    def test_drop_stage_resolved_from_trace_fixture_index(self):
+        """trace.dropped_doc_ids=["1"] matches doc.metadata["fixture_index"]=1 (as string)."""
+        doc = FakeSearchDocument(
+            url="https://example.com/doc",
+            title="Doc",
+            raw_content="Content",
+            metadata={
+                "fixture_index": 1,
+                "fixture_doc_id": "fixture_1",
+            },
+            dropped_reason="irrelevant",
+        )
+        trace = FakeStageTrace(
+            stage="quality",
+            input_c=10, output_c=9, dur=10, reduction=10.0,
+            dropped=1, warnings=0,
+            dropped_doc_ids=["1"],  # fixture_index as string
+        )
+        stage = PipelineQualityScorer._resolve_drop_stage(doc, [trace])
+        assert stage == "quality", (
+            f"Expected 'quality' from fixture_index match, got '{stage}'"
+        )
+
+    def test_drop_stage_resolved_from_url(self):
+        """trace.dropped_doc_ids with URL still works."""
+        doc = FakeSearchDocument(
+            url="https://example.com/doc",
+            title="Doc",
+            raw_content="Content",
+            metadata={"fixture_index": 0},
+            dropped_reason="irrelevant",
+        )
+        trace = FakeStageTrace(
+            stage="relevance",
+            input_c=10, output_c=9, dur=10, reduction=10.0,
+            dropped=1, warnings=0,
+            dropped_doc_ids=["https://example.com/doc"],
+        )
+        stage = PipelineQualityScorer._resolve_drop_stage(doc, [trace])
+        assert stage == "relevance"
+
+
 # ============================================================================
 # Source Traceability
 # ============================================================================
@@ -554,6 +859,91 @@ class TestSourceTraceability:
         assert "citation_instance_density" in result.evidence
         assert "cited_sentence_rate" in result.evidence
         assert "threshold_checks" in result.evidence
+
+
+class TestSourceTraceabilityMultiDigit:
+    """Tests for multi-digit citation handling (Round 3 fix — [S12], [S123] are valid)."""
+
+    def test_valid_multi_digit_citation_S12_passes(self):
+        """[S12] must not be flagged as malformed."""
+        scorer = SourceTraceabilityScorer()
+        result = scorer.score(
+            report_text="Evidence supports the conclusion [S12].",
+            source_registry={"S12": {}},
+        )
+        assert result.status == "pass", f"Expected pass, got {result.status}: {result.issues}"
+        assert result.evidence["malformed_citation_count"] == 0, (
+            f"Expected 0 malformed, got {result.evidence['malformed_citation_count']}: "
+            f"{result.evidence.get('malformed_citations', [])}"
+        )
+        assert result.evidence["orphan_citations"] == 0
+
+    def test_valid_multi_digit_citation_S123_passes(self):
+        """[S123] must not be flagged as malformed."""
+        scorer = SourceTraceabilityScorer()
+        result = scorer.score(
+            report_text="Analysis [S123] confirms the finding.",
+            source_registry={"S123": {}},
+        )
+        assert result.status == "pass", f"Expected pass, got {result.status}: {result.issues}"
+        assert result.evidence["malformed_citation_count"] == 0
+        assert result.evidence["orphan_citations"] == 0
+
+    @pytest.mark.parametrize(
+        "citation",
+        ["[Sx]", "[SA]", "[S]", "[S-1]", "[S1x]", "[s1]", "[S1"]
+    )
+    def test_malformed_citations_fail(self, citation):
+        """Known-bad citation patterns must be detected as malformed → fail."""
+        scorer = SourceTraceabilityScorer()
+        report = f"Analysis {citation} shows something."
+        result = scorer.score(
+            report_text=report,
+            source_registry={"S1": {}} if citation == "[S1" else None,
+        )
+        assert result.status == "fail", (
+            f"Expected fail for '{citation}', got {result.status}"
+        )
+        assert result.evidence["malformed_citation_count"] >= 1, (
+            f"Expected malformed count ≥ 1 for '{citation}', "
+            f"got {result.evidence['malformed_citation_count']}: "
+            f"{result.evidence.get('malformed_citations', [])}"
+        )
+
+    def test_unclosed_bracket_detected_as_malformed(self):
+        """[S1 without closing bracket must be malformed."""
+        scorer = SourceTraceabilityScorer()
+        report = "Analysis [S1 shows something."
+        result = scorer.score(report_text=report, source_registry={"S1": {}})
+        assert result.status == "fail"
+        assert result.evidence["malformed_citation_count"] >= 1
+        malformed = result.evidence.get("malformed_citations", [])
+        assert any("unclosed" in str(m.get("type", "")) or "missing" in str(m.get("description", "")).lower()
+                   for m in malformed), f"Expected unclosed detection: {malformed}"
+
+    def test_no_duplicate_malformed_reports(self):
+        """Same malformed citation reported only once across patterns."""
+        scorer = SourceTraceabilityScorer()
+        report = "Analysis [Sx] and more [Sx]."
+        result = scorer.score(report_text=report)
+        # [Sx] appears twice in text, but also matches both the candidate pattern
+        # and the specific [Sx] pattern — should be deduped
+        malformed = result.evidence.get("malformed_citations", [])
+        # Each unique (start, end, text) is reported once
+        sx_matches = [m for m in malformed if "Sx" in str(m.get("match", ""))]
+        assert len(sx_matches) <= 2, (
+            f"At most 2 [Sx] reports (one per position), got {len(sx_matches)}: {malformed}"
+        )
+
+    def test_S12_in_text_not_orphan_when_registry_has_S12(self):
+        """[S12] with S12 in registry → not orphan, passes."""
+        scorer = SourceTraceabilityScorer()
+        result = scorer.score(
+            report_text="Evidence [S12] is clear.",
+            source_registry={"S12": {"url": "https://example.com"}},
+        )
+        assert result.evidence["orphan_citations"] == 0
+        assert result.status == "pass"
 
 
 # ============================================================================

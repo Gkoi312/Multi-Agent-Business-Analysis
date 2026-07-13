@@ -297,7 +297,7 @@ class PipelineQualityScorer(Scorer):
 
         Priority:
         1. doc.metadata["dropped_stage"] or doc.metadata["drop_stage"]
-        2. trace-based lookup (trace.dropped_doc_ids if available)
+        2. trace-based lookup (exact match against ALL stable identifiers)
         3. Heuristic from dropped_reason text
         4. "unknown" — do NOT attribute to first stage with drops
         """
@@ -307,10 +307,23 @@ class PipelineQualityScorer(Scorer):
             if val:
                 return str(val)
 
-        # 2. Trace-based lookup
+        # 2. Trace-based lookup — match against ALL stable identifiers
+        # Build candidate IDs from every available identifier on the doc
+        candidate_ids: set[str] = set()
+        for attr in ("url", "canonical_url"):
+            val = getattr(doc, attr, None)
+            if val:
+                candidate_ids.add(str(val))
+        for meta_key in ("fixture_doc_id", "fixture_index", "doc_id", "source_id"):
+            val = doc.metadata.get(meta_key)
+            if val is not None and str(val) != "":
+                candidate_ids.add(str(val))
+
         for t in trace:
             dropped_ids = getattr(t, "dropped_doc_ids", None) or []
-            if doc.url in dropped_ids:
+            # Normalise trace IDs to strings for exact set intersection
+            trace_ids = {str(x) for x in dropped_ids}
+            if candidate_ids & trace_ids:
                 return getattr(t, "stage", "unknown")
 
         # 3. Heuristic from reason (more conservative — don't guess)

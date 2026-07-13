@@ -13,6 +13,11 @@ Key fixes:
 - Currency mismatch ($85B vs EUR 85B) is a hard rejection
 - No-label fixtures use explicit flags (expected_no_results, etc.)
 - Hard thresholds with explicit status_reason in evidence
+- Span overlap prevention: priority-ordered extraction (quarter > currency/% >
+  year > plain), no overlapping spans accepted
+- Cross-field number dedup: same number from multiple fields merged via
+  (kind, normalized_value, unit) key
+- No-result trigger checks field EXISTENCE not truthiness
 """
 
 from __future__ import annotations
@@ -54,12 +59,13 @@ _CURRENCY_WORD_MAP: dict[str, str] = {
 
 # Number tokeniser using finditer for multi-number extraction from sentences.
 # Groups: (currency_prefix, integer, decimal, scale_word, percent_sign, unit_word)
+# Uses \d+ (not \d{1,3}) to prevent splitting 4-digit numbers like 2025 → 202 + 5.
 _NUM_FINDITER_PAT = re.compile(
     r"""
     (?:[$€£¥￥]|USD|EUR|GBP|JPY|CNY|RMB|usd|eur|gbp|jpy|cny|rmb)\s*
-    \d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:thousand|million|billion|trillion|[kmbt]|mn|bn|tn)?
+    \d+(?:,\d{3})*(?:\.\d+)?\s*(?:thousand|million|billion|trillion|[kmbt]|mn|bn|tn)?
     |
-    \d{1,3}(?:,\d{3})*(?:\.\d+)?\s*
+    \d+(?:,\d{3})*(?:\.\d+)?\s*
     (?:thousand|million|billion|trillion|[kmbt]|mn|bn|tn)?
     \s*(?:%|USD|EUR|GBP|JPY|CNY|RMB|usd|eur|gbp|jpy|cny|rmb|dollars?|euros?|pounds?|yen|yuan|renminbi)?
     """,
@@ -73,6 +79,11 @@ _QUARTER_PAT = re.compile(
 _YEAR_PAT = re.compile(r"\b(?P<year>20\d{2})\b")
 
 _NumberKind = str
+
+
+def _spans_overlap(span_a: tuple[int, int], span_b: tuple[int, int]) -> bool:
+    """Check whether two character spans overlap (partial or complete)."""
+    return span_a[0] < span_b[1] and span_b[0] < span_a[1]
 
 
 def _resolve_currency(raw_stripped: str, currency_pre: str, unit_str: str) -> str:
@@ -151,49 +162,69 @@ def _normalize_number(raw: str) -> dict[str, Any] | None:
         return {"raw": raw_stripped, "normalized_value": base_value,
                 "unit": currency_code, "kind": "currency"}
 
+    # Detect scaled numbers (e.g. "85 billion" without currency)
+    _has_scale = bool(scale_str)
+
     return {"raw": raw_stripped, "normalized_value": base_value,
-            "unit": unit_str, "kind": "count" if base_value == int(base_value) else "plain_number"}
+            "unit": unit_str,
+            "kind": ("scaled" if _has_scale else
+                     "count" if base_value == int(base_value) else "plain_number")}
 
 
 def _extract_all_numbers_from_text(text: str) -> list[dict[str, Any]]:
-    """Extract ALL numbers from a single text using finditer.
+    """Extract ALL numbers from a single text with priority-ordered overlap prevention.
 
-    Handles multi-number sentences like:
-      "Revenue was $85B in Q3 2025 and margin was 17%"
-    extracting $85B, Q3 2025, and 17% separately.
+    Priority (highest first):
+      1. quarter  (Q3 2025)
+      2. currency / percentage / scaled numbers  ($85B, 17%, 85 billion)
+      3. standalone year  (2025)
+      4. plain number  (5, 202)
 
-    Overlap prevention: once a span is matched, it's excluded.
-    Quarter matches consume the year portion too.
+    A candidate is accepted ONLY if its span does not overlap any
+    already-accepted span.  This prevents:
+      - 2025 from being extracted separately when Q3 2025 is already taken
+      - 3  from being extracted from Q3
+      - 85 from being extracted from $85B
+      - 17 from being extracted from 17%
+      - 202 and 5 from being split out of 2025
     """
     results: list[dict[str, Any]] = []
-    seen_spans: set[tuple[int, int]] = set()
+    accepted_spans: list[tuple[int, int]] = []
 
-    # 1. Find quarters first (they consume 2 tokens: Q3 + 2025)
-    for qm in _QUARTER_PAT.finditer(text):
-        span = (qm.start(), qm.end())
-        if span not in seen_spans:
-            seen_spans.add(span)
-            norm = _normalize_number(qm.group(0))
-            if norm:
-                results.append(norm)
+    # Collect all candidates as (span, norm, priority)
+    candidates: list[tuple[tuple[int, int], dict[str, Any], int]] = []
 
-    # 2. Find years (standalone, not inside a quarter match)
-    for ym in _YEAR_PAT.finditer(text):
-        span = (ym.start(), ym.end())
-        if span not in seen_spans:
-            seen_spans.add(span)
-            norm = _normalize_number(ym.group(0))
-            if norm:
-                results.append(norm)
+    # Priority 0 — quarters
+    for m in _QUARTER_PAT.finditer(text):
+        norm = _normalize_number(m.group(0))
+        if norm:
+            candidates.append(((m.start(), m.end()), norm, 0))
 
-    # 3. Find number expressions
-    for nm in _NUM_FINDITER_PAT.finditer(text):
-        span = (nm.start(), nm.end())
-        if span not in seen_spans:
-            seen_spans.add(span)
-            norm = _normalize_number(nm.group(0))
-            if norm:
-                results.append(norm)
+    # Priority 1 — currency / percentage / scaled from the main number pattern
+    for m in _NUM_FINDITER_PAT.finditer(text):
+        norm = _normalize_number(m.group(0))
+        if norm and norm["kind"] in ("currency", "percentage", "scaled"):
+            candidates.append(((m.start(), m.end()), norm, 1))
+
+    # Priority 2 — standalone years
+    for m in _YEAR_PAT.finditer(text):
+        norm = _normalize_number(m.group(0))
+        if norm:
+            candidates.append(((m.start(), m.end()), norm, 2))
+
+    # Priority 3 — plain numbers (any remaining match)
+    for m in _NUM_FINDITER_PAT.finditer(text):
+        norm = _normalize_number(m.group(0))
+        if norm and norm["kind"] not in ("currency", "percentage", "scaled", "quarter"):
+            candidates.append(((m.start(), m.end()), norm, 3))
+
+    # Sort by priority, then by start position
+    candidates.sort(key=lambda x: (x[2], x[0][0]))
+
+    for span, norm, _pri in candidates:
+        if not any(_spans_overlap(span, a) for a in accepted_spans):
+            accepted_spans.append(span)
+            results.append(norm)
 
     return results
 
@@ -214,30 +245,38 @@ def _extract_numbers_from_texts(texts: list[str]) -> list[dict[str, Any]]:
 def _numbers_match(
     labeled: dict[str, Any],
     extracted: dict[str, Any],
-    tolerance: float = 0.01,
+    tolerance: float = 0.0,
 ) -> tuple[bool, str]:
     """Check whether two normalised numbers match.
 
     Currency mismatch ($85B vs EUR 85B) → hard rejection.
+    Tolerance defaults to 0.0 (exact value match) for all non-year/quarter kinds.
     """
     lk = labeled["kind"]
     ek = extracted["kind"]
     lv = labeled["normalized_value"]
     ev = extracted["normalized_value"]
 
-    # Kind check
+    # Kind check — allow compatible kinds
     if lk == ek:
         pass
     elif {lk, ek} == {"percentage", "plain_number"}:
         pass
     elif {lk, ek} == {"count", "plain_number"}:
         pass
+    elif {lk, ek} == {"scaled", "count"}:
+        pass
+    elif {lk, ek} == {"scaled", "plain_number"}:
+        pass
+    elif {lk, ek} == {"scaled", "currency"}:
+        # e.g. labeled "120 billion_usd" (scaled) vs extracted "$120 billion" (currency)
+        pass
     else:
         return False, f"Kind mismatch: {lk} vs {ek}"
 
-    # Value check
+    # Value check — exact match (tol=0) for all kinds except year/quarter
     rel_tol = tolerance
-    if lk in ("year", "quarter"):
+    if lk in ("year", "quarter") or ek in ("year", "quarter"):
         rel_tol = 1e-9
 
     if lv == 0 and ev == 0:
@@ -279,6 +318,14 @@ DEFAULT_COMPRESSION_THRESHOLDS: dict[str, float] = {
     "numeric_hallucination_rate_max": 0.05,
 }
 
+# Fields whose mere PRESENCE (not truthiness) triggers no-result scoring
+_NO_RESULT_FIELDS = {
+    "expected_no_results",
+    "expected_unanswered",
+    "allowed_fact_count",
+    "expected_error",
+}
+
 # ---------------------------------------------------------------------------
 # Scorer
 # ---------------------------------------------------------------------------
@@ -317,11 +364,10 @@ class CompressionFidelityScorer(Scorer):
         labeled_facts: list[str] = fixture.get("labeled_facts", []) or []
         labeled_numbers: list[dict[str, Any]] = fixture.get("labeled_numbers", []) or []
 
-        # --- No-label fixtures: check for explicit flags ---
-        has_explicit_no_result = (
-            fixture.get("expected_no_results") is True
-            or bool(fixture.get("expected_unanswered"))
-            or fixture.get("allowed_fact_count") == 0
+        # --- No-label fixtures: check for explicit flags by FIELD EXISTENCE ---
+        has_explicit_no_result = any(
+            field_name in fixture
+            for field_name in _NO_RESULT_FIELDS
         )
 
         if not labeled_facts and not labeled_numbers:
@@ -335,7 +381,7 @@ class CompressionFidelityScorer(Scorer):
 
         # Extract facts
         extracted_facts = self._extract_fact_texts(compressed_turn)
-        # Extract ALL numbers from all text sources (NOT just numbers_mentioned)
+        # Extract ALL numbers from all text sources with cross-field dedup
         extracted_all_numbers = self._extract_all_numbers(compressed_turn)
 
         if self.judge_llm is not None:
@@ -346,23 +392,21 @@ class CompressionFidelityScorer(Scorer):
                 labeled_facts, extracted_facts, labeled_numbers, extracted_all_numbers)
 
     # ------------------------------------------------------------------
-    # Unified number extraction from ALL text fields
+    # Unified number extraction from ALL text fields (with cross-field dedup)
     # ------------------------------------------------------------------
 
     @staticmethod
     def _extract_all_numbers(turn: Any) -> list[dict[str, Any]]:
-        """Extract numbers from ALL relevant fields using finditer.
+        """Extract numbers from ALL relevant fields with cross-field dedup.
 
-        Sources (in order):
-        1. numbers_mentioned (explicit field)
-        2. facts[].text
-        3. key_findings
-        4. question_intent
+        Sources: numbers_mentioned, facts[].text, key_findings, question_intent.
 
-        Returns list of dicts with 'value', 'unit', 'context', and
-        '_source_field' tracking which field each number came from.
+        Numbers are normalised and deduplicated by (kind, normalized_value, unit).
+        When the same number appears in multiple source fields, source_fields
+        and raw_variants are merged — the number is counted only once.
         """
-        all_raw: list[dict[str, Any]] = []
+        # Collect raw candidates from all sources
+        raw_candidates: list[dict[str, Any]] = []
 
         # 1. numbers_mentioned
         nums = getattr(turn, "numbers_mentioned", None)
@@ -371,7 +415,7 @@ class CompressionFidelityScorer(Scorer):
         for n in (nums or []):
             d = dict(n) if isinstance(n, dict) else {"value": str(n)}
             d["_source_field"] = "numbers_mentioned"
-            all_raw.append(d)
+            raw_candidates.append(d)
 
         # 2. facts[].text
         fact_texts = CompressionFidelityScorer._extract_fact_texts(turn)
@@ -384,10 +428,10 @@ class CompressionFidelityScorer(Scorer):
                         continue
                 raw_text = norm.get("raw", "")
                 unit = norm.get("unit", "")
-                all_raw.append({"value": raw_text,
-                                "unit": unit,
-                                "context": raw_text,
-                                "_source_field": "facts.text"})
+                raw_candidates.append({"value": raw_text,
+                                      "unit": unit,
+                                      "context": raw_text,
+                                      "_source_field": "facts.text"})
 
         # 3. key_findings
         kf = getattr(turn, "key_findings", None)
@@ -398,10 +442,10 @@ class CompressionFidelityScorer(Scorer):
             norms = _extract_all_numbers_from_text(text)
             for norm in norms:
                 raw_text = norm.get("raw", "")
-                all_raw.append({"value": raw_text,
-                                "unit": norm.get("unit", ""),
-                                "context": raw_text,
-                                "_source_field": "key_findings"})
+                raw_candidates.append({"value": raw_text,
+                                      "unit": norm.get("unit", ""),
+                                      "context": raw_text,
+                                      "_source_field": "key_findings"})
 
         # 4. question_intent
         qi = getattr(turn, "question_intent", None)
@@ -411,12 +455,37 @@ class CompressionFidelityScorer(Scorer):
             norms = _extract_all_numbers_from_text(str(qi))
             for norm in norms:
                 raw_text = norm.get("raw", "")
-                all_raw.append({"value": raw_text,
-                                "unit": norm.get("unit", ""),
-                                "context": raw_text,
-                                "_source_field": "question_intent"})
+                raw_candidates.append({"value": raw_text,
+                                      "unit": norm.get("unit", ""),
+                                      "context": raw_text,
+                                      "_source_field": "question_intent"})
 
-        return all_raw
+        # --- Normalise and dedup by (kind, normalized_value, unit) ---
+        seen: dict[tuple, dict[str, Any]] = {}
+        for raw in raw_candidates:
+            parse_str = f"{raw.get('value', '')} {raw.get('unit', '')} {raw.get('context', '')}"
+            norm = _normalize_number(parse_str)
+            if norm is None:
+                continue
+            dedup_key = (
+                norm["kind"],
+                norm["normalized_value"],
+                norm.get("unit", ""),
+            )
+            source_field = raw.get("_source_field", "unknown")
+            raw_variant = raw.get("value", "")
+            if dedup_key in seen:
+                existing = seen[dedup_key]
+                if source_field not in existing["source_fields"]:
+                    existing["source_fields"].append(source_field)
+                if raw_variant and raw_variant not in existing["raw_variants"]:
+                    existing["raw_variants"].append(raw_variant)
+            else:
+                norm["source_fields"] = [source_field]
+                norm["raw_variants"] = [raw_variant] if raw_variant else []
+                seen[dedup_key] = norm
+
+        return list(seen.values())
 
     # ------------------------------------------------------------------
     # No-result case evaluation
@@ -431,6 +500,7 @@ class CompressionFidelityScorer(Scorer):
         expected_unanswered_raw = fixture.get("expected_unanswered")
         allowed_fact_count = fixture.get("allowed_fact_count")
         expected_error = fixture.get("expected_error")
+        expected_no_results = fixture.get("expected_no_results")
 
         issues: list[str] = []
         checks: dict[str, bool] = {}
@@ -440,15 +510,20 @@ class CompressionFidelityScorer(Scorer):
             checks["fact_count_within_limit"] = len(facts) <= int(allowed_fact_count)
             if not checks["fact_count_within_limit"]:
                 issues.append(f"Fact count {len(facts)} exceeds allowed {allowed_fact_count}")
+        elif expected_no_results is True:
+            checks["no_facts_generated"] = len(facts) == 0
+            if not checks["no_facts_generated"]:
+                issues.append(f"Expected no facts but generated {len(facts)}")
         else:
             checks["no_facts_generated"] = len(facts) == 0
             if not checks["no_facts_generated"]:
                 issues.append(f"Expected no facts but generated {len(facts)}")
 
         # Number check
-        checks["no_numbers_generated"] = len(nums) == 0
-        if not checks["no_numbers_generated"]:
-            issues.append(f"Expected no numbers but generated {len(nums)}")
+        if expected_no_results is True:
+            checks["no_numbers_generated"] = len(nums) == 0
+            if not checks["no_numbers_generated"]:
+                issues.append(f"Expected no numbers but generated {len(nums)}")
 
         # Unanswered check (handle bool and list types)
         if expected_unanswered_raw is not None:
@@ -457,6 +532,11 @@ class CompressionFidelityScorer(Scorer):
                     checks["has_unanswered"] = len(unanswered) > 0
                     if not checks["has_unanswered"]:
                         issues.append("Expected at least one unanswered item but got none")
+                else:
+                    # expected_unanswered: False → must NOT have unanswered
+                    checks["no_unanswered"] = len(unanswered) == 0
+                    if not checks["no_unanswered"]:
+                        issues.append(f"Expected no unanswered but got {len(unanswered)}")
             elif isinstance(expected_unanswered_raw, list):
                 answered = set(str(u).strip().lower() for u in unanswered)
                 expected = set(str(e).strip().lower() for e in expected_unanswered_raw)
@@ -473,6 +553,10 @@ class CompressionFidelityScorer(Scorer):
             checks["no_error"] = not bool(comp_error)
             if not checks["no_error"]:
                 issues.append(f"Unexpected compression error: {comp_error}")
+        elif expected_error is not None:
+            checks["no_error"] = not bool(comp_error)
+            if comp_error:
+                issues.append(f"Compression error: {comp_error}")
         else:
             checks["no_error"] = not bool(comp_error)
             if comp_error:
@@ -760,32 +844,33 @@ EXTRACTED FACTS ({n_extracted} total):
         )
 
     # ------------------------------------------------------------------
-    # Full number matching
+    # Full number matching — works with pre-normalised extracted numbers
     # ------------------------------------------------------------------
 
     @staticmethod
     def _match_numbers_full(
-        labeled: list[dict[str, Any]], extracted_all: list[dict[str, Any]],
+        labeled: list[dict[str, Any]],
+        extracted_normalized: list[dict[str, Any]],
     ) -> dict[str, Any]:
+        """Match labeled numbers against already-normalised, deduped extracted numbers."""
         if not labeled:
             return {"matched_numbers": [], "missed_numbers": [], "extra_numbers": [],
                     "number_retention": 1.0, "numeric_hallucination_rate": 0.0}
 
+        # Normalise labeled numbers
         norm_labeled: list[dict[str, Any]] = []
         for ln in labeled:
             parse_str = f"{ln.get('value','')} {ln.get('unit','')} {ln.get('context','')}"
             norm = _normalize_number(parse_str)
             if norm is not None:
-                norm["_labeled_idx"] = len(norm_labeled); norm_labeled.append(norm)
+                norm["_labeled_idx"] = len(norm_labeled)
+                norm_labeled.append(norm)
 
+        # Extracted numbers are already normalised — just index them
         norm_extracted: list[dict[str, Any]] = []
-        for en in extracted_all:
-            parse_str = f"{en.get('value','')} {en.get('unit','')} {en.get('context','')}"
-            norm = _normalize_number(parse_str)
-            if norm is not None:
-                norm["_extracted_idx"] = len(norm_extracted)
-                norm["_source_field"] = en.get("_source_field", "unknown")
-                norm_extracted.append(norm)
+        for en in extracted_normalized:
+            en["_extracted_idx"] = len(norm_extracted)
+            norm_extracted.append(en)
 
         matched_labeled: set[int] = set()
         matched_extracted: set[int] = set()
@@ -793,24 +878,30 @@ EXTRACTED FACTS ({n_extracted} total):
 
         # First pass: strict matches (no unit conflict, no currency mismatch)
         for ei, en in enumerate(norm_extracted):
-            if ei in matched_extracted: continue
+            if ei in matched_extracted:
+                continue
             for li, ln in enumerate(norm_labeled):
-                if li in matched_labeled: continue
+                if li in matched_labeled:
+                    continue
                 is_match, reason = _numbers_match(ln, en)
                 if is_match and "mismatch" not in reason.lower() and "conflict" not in reason.lower():
-                    matched_labeled.add(li); matched_extracted.add(ei)
+                    matched_labeled.add(li)
+                    matched_extracted.add(ei)
                     matched_pairs.append({"labeled": ln, "extracted": en,
                                          "match_quality": "exact" if reason == "" else reason})
                     break
 
         # Second pass: allow unit-conflict for non-currency
         for ei, en in enumerate(norm_extracted):
-            if ei in matched_extracted: continue
+            if ei in matched_extracted:
+                continue
             for li, ln in enumerate(norm_labeled):
-                if li in matched_labeled: continue
+                if li in matched_labeled:
+                    continue
                 is_match, reason = _numbers_match(ln, en)
                 if is_match and "mismatch" not in reason.lower():
-                    matched_labeled.add(li); matched_extracted.add(ei)
+                    matched_labeled.add(li)
+                    matched_extracted.add(ei)
                     matched_pairs.append({"labeled": ln, "extracted": en,
                                          "match_quality": "unit_conflict"})
                     break

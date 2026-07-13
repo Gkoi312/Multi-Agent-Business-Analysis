@@ -7,6 +7,10 @@ Key fixes:
 - Malformed citation detection: [Sx], [SA], [S], [S-1], [S1x], [s1], missing bracket
 - No registry with citations → fail (can't cross-validate)
 - Hard thresholds with explicit status_reason
+- Multi-digit citation fix: [S12], [S123] are valid, not malformed
+  Uses two-phase approach (extract candidates then fullmatch validate) instead of
+  the buggy negative-lookahead pattern which backtracks on multi-digit citations.
+- Malformed dedup: same malformed citation reported only once
 """
 
 from __future__ import annotations
@@ -19,7 +23,19 @@ from harness.evaluation.scorer import ScoreResult, Scorer
 # Valid citations: [S1], [S12], [S123]
 _CITATION_RE = re.compile(r"\[S(\d+)\]")
 
-# Malformed citation patterns
+# Candidate extraction: find ALL [S...] tokens (valid + malformed)
+# Matches [S followed by non-whitespace, non-bracket chars up to ] or end-boundary
+_CITATION_CANDIDATE_RE = re.compile(
+    r"\[S[^\s\[\]]*(?:\]|(?=\s|$|[.,;:!?。！？]))",
+    re.IGNORECASE,
+)
+
+# Full-match validator for legitimate citations
+_VALID_CITATION_FULL_RE = re.compile(r"^\[S\d+\]$")
+
+# Malformed citation patterns (specific known-bad shapes)
+# NOTE: removed the buggy r"\[S\d+(?!\])" — it backtracks and matches [S1 inside [S12].
+# Unclosed-bracket detection is now handled by the two-phase candidate approach.
 _MALFORMED_PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
     ("[Sx]", re.compile(r"\[S[xX]\]"), "non-numeric suffix 'x'"),
     ("[SA]", re.compile(r"\[S[A-Za-z](?:\d+)?\]"), "letter where digit expected"),
@@ -27,7 +43,6 @@ _MALFORMED_PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
     ("[S-1]", re.compile(r"\[S-\d+\]"), "negative citation number"),
     ("[S1x]", re.compile(r"\[S\d+[A-Za-z]\]"), "trailing letter in citation"),
     ("[s1]", re.compile(r"\[s\d+\]"), "lowercase 's' in citation"),
-    ("unclosed", re.compile(r"\[S\d+(?!\])"), "missing closing bracket"),
 ]
 
 _BARE_URL_RE = re.compile(r"https?://[^\s\)\]一-鿿]*")
@@ -65,11 +80,42 @@ class SourceTraceabilityScorer(Scorer):
         all_citations = _CITATION_RE.findall(report_text)
         body_citations = _CITATION_RE.findall(body_text)
 
-        # Malformed citations
+        # --- Malformed citations: two-phase detection ---
         malformed_list: list[dict[str, str]] = []
+        seen_malformed: set[tuple[int, int, str]] = set()
+
+        # Phase 1: Extract all [S...] candidates and check with fullmatch
+        for m in _CITATION_CANDIDATE_RE.finditer(report_text):
+            candidate = m.group(0)
+            span = (m.start(), m.end())
+            if _VALID_CITATION_FULL_RE.fullmatch(candidate):
+                continue  # Valid citation, skip
+            # This is malformed — dedup by (start, end, match_text)
+            dedup_key = (span[0], span[1], candidate)
+            if dedup_key not in seen_malformed:
+                seen_malformed.add(dedup_key)
+                malformed_list.append({
+                    "match": candidate,
+                    "type": "unclosed" if not candidate.endswith("]") else "malformed",
+                    "description": (
+                        "missing closing bracket" if not candidate.endswith("]")
+                        else f"malformed citation: {candidate}"
+                    ),
+                })
+
+        # Phase 2: Check known-bad patterns (may overlap with candidates above,
+        # dedup prevents double-counting)
         for label, pattern, description in _MALFORMED_PATTERNS:
             for m in pattern.finditer(report_text):
-                malformed_list.append({"match": m.group(0), "type": label, "description": description})
+                dedup_key = (m.start(), m.end(), m.group(0))
+                if dedup_key not in seen_malformed:
+                    seen_malformed.add(dedup_key)
+                    malformed_list.append({
+                        "match": m.group(0),
+                        "type": label,
+                        "description": description,
+                    })
+
         malformed_count = len(malformed_list)
 
         # Bare URLs
