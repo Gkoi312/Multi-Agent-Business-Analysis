@@ -1,27 +1,28 @@
 # AgentHarness — Multi-Agent Orchestration & Evaluation Platform
 
-A `LangGraph + FastAPI` **pluggable-domain AI agent infrastructure platform** with built-in memory management and evaluation framework. The first domain application is **enterprise due diligence report generation**.
+A `LangGraph + FastAPI` multi-agent **due diligence research platform**, with a reusable memory/tooling/evaluation core (Harness) underneath a single, concrete domain (report generation). Industry breadth comes from **pluggable skill packs** (data), not new domains (code).
 
 ## Project Positioning
 
 ```
-Operating System  :  Applications  =  AI Harness  :  Due Diligence / Stock Analysis / Legal Review Agents
+Operating System  :  Applications        =  AI Harness   :  Due Diligence Research
+Plugin / Config    :  Vertical knowledge  =  Skill Pack   :  AI / Beauty / Real Estate / ...
 ```
 
-This is not a specific agent application — it is the **infrastructure layer (Harness)** shared by all agent applications. It provides:
+The **Harness layer** is business-agnostic infrastructure shared by any research workflow built on top of it. It provides:
 
-1. **Agent Runtime** — orchestration engine, state management, fan-out, interrupt, recovery
-2. **Tool Integration** — standardized tool registry, invocation pipeline, result cleaning
-3. **Memory & Context** — conversational compression, structured working memory, context window management
-4. **Human-in-the-Loop** — approval gates, feedback injection, pause/resume
-5. **Observability** — traces, metrics, events, cost tracking
-6. **Evaluation** — offline eval (fixture simulation), online monitoring, reliability analysis
+1. **Tool Integration** — standardized tool registry, invocation pipeline, result cleaning
+2. **Memory & Context** — conversational compression, structured working memory, context window management, reusable research-loop node factories (`harness/memory/nodes.py`)
+3. **Observability** — traces, metrics, events, cost tracking
+4. **Evaluation** — offline eval (fixture simulation), online monitoring, reliability analysis
+
+The **Domain layer** (`domains/due_diligence/`) owns the one thing that's genuinely business-specific: the LangGraph workflow shape, the prompts, and the report structure. **Industry variation** (AI / beauty / real estate / …) is handled by a third, orthogonal axis — **skill packs** (`skills/<industry>/*.md`) — markdown data injected into generic prompt templates at render time, requiring zero code changes to add a new vertical.
 
 ## Highlights
 
-- **Harness + Domain layered architecture** — engine and business logic are decoupled; swapping domains only requires a new adapter
+- **Harness / Domain / Skill-pack separation** — generic infra (memory, tool pipeline, checkpointing, eval) has zero business logic; the domain layer owns workflow structure; skill packs own industry knowledge as data
 - Multi-agent due diligence workflow built on `LangGraph` with fan-out parallel interviews
-- Human-in-the-loop analyst review and regeneration loop
+- Human-in-the-loop analyst review and regeneration loop, via LangGraph's native `interrupt_before` + checkpointer (pause at a node, inject feedback, resume)
 - **Persistent checkpointing via SqliteSaver** — failed tasks resume from the exact node that failed, zero token waste across server restarts
 - **Pluggable skill packs** — YAML-driven industry configurations (role skills + research skills + search policies)
 - **9-stage search result cleaning pipeline** (canonicalize → clean → dedup → near-dedup → relevance → quality → structure → guard → format)
@@ -41,8 +42,16 @@ This is not a specific agent application — it is the **infrastructure layer (H
 - ✅ **Phase 4 complete**: Evaluation framework — 3 scorers (compression fidelity, pipeline quality, source traceability), 7 consistency checks, fixture-driven runner with N-repeat reliability analysis
 - ✅ Full API + SPA flow: signup/login → submit company → generate analysts → human feedback → report → export
 - ✅ Persistent checkpoints with SqliteSaver — exact-node retry across server restarts
-- ✅ 428 automated tests passing (`backend/tests/`)
-- 📋 Phase 5 next: polish, second domain to validate pluggability, CI integration
+- ✅ 434 automated tests passing (`backend/tests/`)
+- ✅ Removed the unused generic `harness/runtime/` graph-template layer and `harness/human_loop/` — validated only by a mock-domain smoke test, never wired into the real workflow; extracted the parts that *were* genuinely reusable (compress / update_memory / compact_history / continue-router) into `harness/memory/nodes.py`, which the real interview graph now calls
+- ✅ Removed 3 unused Pydantic types (`SkillRef`/`SourcePolicy`/`DomainMemoryRef`) and one dead helper method that had zero call sites anywhere in the repo
+- ✅ Moved `ModelLoader`, `SkillRegistry`, the structured logger, and the shared exception type out of `app/` and into `harness/` — they were pure cross-cutting infrastructure (zero HTTP logic, zero due-diligence logic) that had been misplaced under the web layer by convention rather than by design
+- ✅ Closed the `harness` → `app` reverse-dependency entirely: `harness/observability/{task_runtime,tracer}.py` no longer import anything from `app.*`. `TaskRuntime`/`NodeTracer` now take an optional `runtime_dir` constructor param and fall back to a self-contained default (`harness/paths.py`, reads the same `RUNTIME_DIR` env var directly rather than importing `app.config`) — genuinely dependency-injected, not just relocated
+- ✅ Renamed `app/` → `server/` — once stripped of the misplaced infra above, all that was left was the FastAPI routes, DB, and config; "app" was an ambiguous name for that (the repo also has `frontend/`, which is arguably "the app" too)
+- ✅ Fixed a real, previously-silent bug found while doing the rename: `domains/due_diligence/graph.py` constructed `SkillRegistry` with a path one directory level too shallow (`parents[3]` instead of `parents[2]`, a leftover from before the Phase 1 restructuring added a directory level). `SkillRegistry.load_skill_pack()` fails silently on a missing directory, so this had been returning an empty skill bundle on every real run — the `ai` skill pack's Markdown content was likely never actually reaching the LLM in production, only the generic fallback. Verified fixed: `load_skill_pack("ai")` now returns 3 role skills + 3 domain-memory entries as expected
+- ✅ Repo-wide dead-function sweep (AST-based, cross-checked against every source file and test): removed ~15 functions/methods with zero callers anywhere — mostly abandoned "async twin" methods (`acompress_completed_turn`, `acompact_history`, `acompute_new_summary`, `_agenerate_summary`) and a whole unused `EvalRunner` class in `harness/evaluation/runner.py` (the real eval script, `run_real_evals.py`, always drove scorers directly and never went through it — kept `EvalRunResult`, which *is* used). Excluded from the sweep: FastAPI route handlers and framework callback methods (`@app.on_event`, `HTMLParser.handle_*`), which only look unreferenced because the framework calls them by convention, not by name
+- ✅ Merged `harness/models/state.py` (a single 10-line function) into `harness/models/__init__.py`, and merged `harness/logger/` + `harness/paths.py` into `harness/observability/` (their only real consumers) — deliberately did *not* create a `harness/utils/` catch-all, since that reintroduces the same "vague dumping ground" problem `app/` had; `exceptions.py`, `llm_loader.py`, `skill_registry.py` stay as distinct top-level harness modules because each maps to one clearly named capability
+- 📋 Phase 5 next: a second populated skill pack (e.g. `beauty/`) to prove the "industry via data, not code" claim end-to-end, plus CI integration
 
 ### Evaluation results (real LLM runs, deepseek-chat, 3 repeats)
 
@@ -74,30 +83,30 @@ Full data: `backend/eval_results/` (raw run records + `reliability_report.md`).
 .
 ├── backend/
 │   ├── start_api.py                    # API entry point
-│   ├── harness/                        # 🆕 Harness core platform layer
-│   │   ├── runtime/                    # Agent Runtime (graph builder, fan-out, checkpoint)
+│   ├── harness/                        # 🆕 Harness core platform layer (zero business logic)
 │   │   ├── tools/                      # Tool Integration (registry, pipeline, adapters)
 │   │   │   ├── registry.py            # ToolRegistry
 │   │   │   ├── pipeline.py            # ToolPipeline + ProcessingStage
 │   │   │   ├── search/                # Search adapters (Tavily, Brave) + cleaner stages
 │   │   │   └── browse/                # Browse adapter (Jina Reader)
-│   │   ├── memory/                     # Memory & Context (compressor, working memory)
-│   │   ├── human_loop/                 # Human-in-the-Loop (gate, feedback)
-│   │   ├── observability/              # Observability (task runtime, tracer, metrics)
-│   │   ├── evaluation/                 # Evaluation framework (runner, scorer, fixtures)
-│   │   └── models/                     # Generic data models (Agent, State, Task)
-│   ├── domains/                        # 🆕 Domain application layer (pluggable)
-│   │   ├── base.py                     # DomainAdapter base class
-│   │   └── due_diligence/              # Due diligence domain
+│   │   ├── memory/                     # Memory & Context (compressor, working memory, nodes.py generic node factories)
+│   │   ├── observability/              # Observability (task runtime, tracer, metrics, logger.py, paths.py)
+│   │   ├── evaluation/                 # Evaluation framework (scorer, fixtures, reliability — EvalResult, not EvalRunner)
+│   │   ├── models/                     # Generic data models (Agent, memory types, keep_latest reducer)
+│   │   ├── exceptions.py               # ResearchAnalystException — shared error wrapper
+│   │   ├── skill_registry.py           # Loads skill packs from skills/<industry>/*.md
+│   │   └── llm_loader.py               # Multi-provider LLM loading (openai/google/groq/deepseek)
+│   ├── domains/                        # 🆕 Domain application layer (workflow structure)
+│   │   └── due_diligence/              # Due diligence domain — the only domain today
 │   │       ├── graph.py                # Main report graph
 │   │       ├── interview.py            # Interview sub-graph
 │   │       ├── schemas.py              # Domain state definitions
-│   │       └── prompts/                # Domain prompt templates
-│   ├── skills/                         # Industry skill packs (YAML-driven)
-│   ├── app/                            # Web application layer
+│   │       └── prompts/                # Domain prompt templates (skill_card injected at render time)
+│   ├── skills/                         # Industry skill packs (Markdown-driven; only `ai/` populated today)
+│   ├── server/                         # Web server layer — HTTP delivery only (renamed from app/)
 │   │   ├── api/                        # FastAPI routes + services
-│   │   ├── utils/                      # Model loader, etc.
-│   │   └── database/                   # User auth database
+│   │   ├── database/                   # User auth database
+│   │   └── config.py                   # Env-driven config (CORS origins, runtime dir, ...)
 │   ├── tests/                          # 🆕 Test suite (428 tests)
 │   │   ├── harness/                    # Unit/integration tests (memory, tools, eval scorers, checkpoint reliability, ...)
 │   │   └── fixtures/                   # Evaluation fixtures (compression/ pipeline/ end_to_end/)
@@ -118,23 +127,27 @@ Full data: `backend/eval_results/` (raw run records + `reliability_report.md`).
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                  Domain Apps (pluggable)                      │
-│   business-due-diligence  │  stock-analysis  │  legal-review  │
+│           Skill Packs (data — industry knowledge)             │
+│         skills/ai/*.md   │  skills/beauty/*.md (future)       │
 ├──────────────────────────────────────────────────────────────┤
-│                  Agent Harness Core                           │
+│         Domain Layer (code — workflow structure)              │
+│   domains/due_diligence/  (graph shape, prompts, report spec) │
+├──────────────────────────────────────────────────────────────┤
+│                  Agent Harness Core (zero business logic)     │
 │  ┌─────────────┐ ┌──────────────┐ ┌───────────────────────┐  │
-│  │ Agent        │ │ Tool         │ │ Memory & Context      │  │
-│  │ Runtime      │ │ Integration  │ │ Manager               │  │
+│  │ Tool         │ │ Memory &     │ │ Observability          │  │
+│  │ Integration  │ │ Context      │ │                       │  │
 │  └─────────────┘ └──────────────┘ └───────────────────────┘  │
-│  ┌─────────────┐ ┌──────────────┐ ┌───────────────────────┐  │
-│  │ Human-in-    │ │ Observability│ │ Evaluation             │  │
-│  │ the-Loop     │ │              │ │ Framework             │  │
-│  └─────────────┘ └──────────────┘ └───────────────────────┘  │
+│  ┌───────────────────────────────────────────────────────┐   │
+│  │ Evaluation Framework                                    │   │
+│  └───────────────────────────────────────────────────────┘   │
 ├──────────────────────────────────────────────────────────────┤
 │                  Infrastructure                               │
 │   Model Loader  │  DB (SQLite)  │  File Storage  │  HTTP     │
 └──────────────────────────────────────────────────────────────┘
 ```
+
+Agent orchestration itself (graph construction, `Send`-based fan-out, `interrupt_before` + checkpointer for human-in-the-loop) is handled directly with native LangGraph primitives inside the domain layer — there is no separate generic "runtime template" layer. An earlier iteration explored one (`harness/runtime/`, a parameterized `AgentGraphTemplate`), but it was removed after establishing that this project's actual extension axis is skill packs (data) within one domain, not multiple structurally different domains — the abstraction had no second real consumer, so it was deleted rather than kept as unused scaffolding.
 
 ## Quick Start
 
@@ -272,16 +285,19 @@ LLM generates search query
 ### Code organization
 
 - **Harness layer** (`backend/harness/`) — generic infrastructure, zero business logic
-- **Domain layer** (`backend/domains/`) — domain-specific business logic; implement `DomainAdapter` to add new domains
-- **App layer** (`backend/app/`) — web application (API routes, service orchestration, database)
-- **Skills** (`backend/skills/`) — YAML skill packs, configuration-driven
+- **Domain layer** (`backend/domains/`) — domain-specific business logic (graph shape + prompts + report spec). Adding an industry goes through skill packs, not this layer; adding a structurally different domain (stock analysis, legal review) means hand-writing a new `graph.py`
+- **Server layer** (`backend/server/`) — HTTP delivery only (API routes, service orchestration, database); no cross-cutting infra lives here anymore, that's all in `harness/`
+- **Skills** (`backend/skills/`) — Markdown skill packs, data-driven (no code)
 
-### Adding a new domain
+### Adding a new industry (skill pack — the common case)
 
-1. Create a new directory under `backend/domains/`
-2. Implement the `DomainAdapter` interface from `domains/base.py`
-3. Provide domain-specific `schemas.py`, `prompts/`, and `graph.py`
-4. Create a corresponding `skill_pack.yaml` under `backend/skills/`
+1. Create a new directory under `backend/skills/<industry>/`
+2. Add role-skill Markdown files (analyst personas) following `skills/ai/*.md` as a template
+3. No domain code changes needed — `skill_card.body` is injected directly into the existing prompt templates in `domains/due_diligence/prompts/interview.py`
+
+### Adding a new domain (a structurally different workflow — the rare case)
+
+There's no assisted scaffolding for this today (an earlier generic `AgentGraphTemplate` attempt was removed as unused — see Roadmap). Adding a genuinely new domain (e.g. a debate-structured legal review, not a due-diligence-shaped report) currently means hand-building a new `StateGraph` under `backend/domains/<name>/`, following `domains/due_diligence/graph.py` as a reference, and reusing what's already domain-agnostic from `harness/` (tools, memory, observability, evaluation).
 
 ### Adding a new search backend
 
@@ -310,7 +326,8 @@ The domain code resolves backends by name automatically via `TOOL_REGISTRY.get_s
 - User authentication is backed by local SQLite
 - Task state and event persistence are file-based
 - Report quality depends heavily on model selection, prompt quality, and external search results
-- Only one domain (due diligence) is actually implemented today; the "pluggable domain" architecture is in place but not yet validated with a second domain
+- Only one skill pack (`ai`) is actually populated today; industry breadth (beauty, real estate, …) is architecturally supported (skill_card content is injected into generic prompt templates) but not yet exercised with a second pack
+- The report's macro-structure and the search source-type routing table are still written directly into the domain's prompt text, not into skill-pack config — a genuinely different vertical (e.g. real estate, which cares about property registries, not SEC filings) would currently require editing domain prompt code, not just adding a skill pack
 
 ## FAQ
 
