@@ -103,43 +103,6 @@ class RunningSummaryManager:
             version=running_summary.version + 1,
         )
 
-    async def acompute_new_summary(
-        self,
-        messages: list[Any],
-        *,
-        running_summary: RunningSummary | None = None,
-        model: Any,
-        summary_prompt: str = "",
-    ) -> RunningSummary | None:
-        """Async variant of :meth:`compute_new_summary`."""
-        if running_summary is None:
-            running_summary = RunningSummary()
-
-        new_messages = self._find_new_messages(messages, running_summary)
-        if not new_messages:
-            return None
-
-        new_messages = self._complete_tool_call_boundary(new_messages, messages)
-        if len(new_messages) < 2:
-            return None
-
-        new_text = self._build_summary_block(new_messages)
-        summary_content = await self._agenerate_summary(
-            model=model,
-            existing_summary=running_summary.summary,
-            new_text=new_text,
-            summary_prompt=summary_prompt,
-        )
-
-        new_ids = set(self._get_id(msg) for msg in new_messages)
-
-        return RunningSummary(
-            summary=summary_content,
-            summarized_message_ids=running_summary.summarized_message_ids | new_ids,
-            last_summarized_message_id=self._get_id(new_messages[-1]),
-            version=running_summary.version + 1,
-        )
-
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
@@ -330,46 +293,6 @@ class RunningSummaryManager:
             if last > max_chars // 2:
                 return truncated[:last + len(sep)].rstrip() + "…"
         return truncated.rstrip() + "…"
-
-    async def _agenerate_summary(
-        self,
-        model: Any,
-        existing_summary: str,
-        new_text: str,
-        summary_prompt: str,
-    ) -> str:
-        """Async variant of :meth:`_generate_summary`."""
-        if not summary_prompt:
-            summary_prompt = (
-                "You are a context compressor. Summarize the key facts, decisions, "
-                "and findings from the following conversation. Be concise but complete.\n\n"
-            )
-
-        if existing_summary:
-            prompt = (
-                f"{summary_prompt}\n\n"
-                f"## Existing Summary\n{existing_summary}\n\n"
-                f"## New Messages to Incorporate\n{new_text}\n\n"
-                "Extend the existing summary by incorporating the new messages above. "
-                "Return ONLY the updated summary text (no JSON, no markdown fences)."
-            )
-        else:
-            prompt = (
-                f"{summary_prompt}\n\n"
-                f"## Messages to Summarize\n{new_text}\n\n"
-                "Return ONLY the summary text (no JSON, no markdown fences)."
-            )
-
-        from langchain_core.messages import HumanMessage
-        response = await model.ainvoke([HumanMessage(content=prompt)])
-        content = getattr(response, "content", str(response)).strip()
-
-        # Enforce max_summary_tokens (sync fallback — model.ainvoke already resolved)
-        actual_tokens = self.token_counter(content)
-        if actual_tokens > self.max_summary_tokens:
-            content = self._truncate_to_token_boundary(content)
-
-        return content
 
     # ------------------------------------------------------------------
     # Static helpers

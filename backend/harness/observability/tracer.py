@@ -33,8 +33,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator
 
-from app.config import RUNTIME_DIR
-from app.logger import GLOBAL_LOGGER
+from harness.observability.logger import GLOBAL_LOGGER
+from harness.observability.paths import default_runtime_dir
 
 
 # ---------------------------------------------------------------------------
@@ -185,9 +185,10 @@ class NodeTracer:
     ``<RUNTIME_DIR>/traces/<task_id>.jsonl``.
     """
 
-    def __init__(self, task_id: str):
+    def __init__(self, task_id: str, runtime_dir: str | None = None):
         self.task_id = task_id
-        self._traces_dir = os.path.join(os.fspath(RUNTIME_DIR), "traces")
+        base = runtime_dir if runtime_dir is not None else default_runtime_dir()
+        self._traces_dir = os.path.join(os.fspath(base), "traces")
         os.makedirs(self._traces_dir, exist_ok=True)
         self._path = os.path.join(self._traces_dir, f"{task_id}.jsonl")
         self._logger = GLOBAL_LOGGER.bind(module="NodeTracer", task_id=task_id)

@@ -40,31 +40,12 @@ class Perspectives(BaseModel):
 # Skill / Planning / Review
 # ---------------------------------------------------------------------------
 
-class SourcePolicy(BaseModel):
-    policy_id: str = Field(description="Search policy ID.")
-    label: str = Field(description="Human-readable policy label.")
-    preferred_source_types: list[str] = Field(default_factory=list)
-    site_hints: list[str] = Field(default_factory=list)
-    freshness_hint: str = Field(default="balanced")
-    guidance: list[str] = Field(default_factory=list)
-
-
-class SkillRef(BaseModel):
-    skill_id: str = Field(description="Skill card ID.")
-    reason: str = Field(default="", description="Why this skill was selected for the task.")
-
-
 class DomainMemoryEntry(BaseModel):
     memory_id: str = Field(description="Domain memory entry ID.")
     category: str = Field(description="Memory category.")
     title: str = Field(description="Memory title.")
     content: str = Field(description="Memory body text.")
     tags: list[str] = Field(default_factory=list)
-
-
-class DomainMemoryRef(BaseModel):
-    memory_id: str = Field(description="Domain memory entry ID.")
-    category: str = Field(description="Memory category.")
 
 
 class CoverageGoal(BaseModel):

@@ -166,19 +166,6 @@ class SearchQuery:
     max_results: int = 10
     reasoning: str = ""  # why the LLM chose this source_type + query
 
-    def to_params(self, backend: str) -> dict[str, Any]:
-        """Convert to backend-specific kwargs dict.
-
-        Subclasses / adapters can override for finer control.
-        """
-        return {
-            "query": self.query,
-            "max_results": self.max_results,
-            "source_type": self.source_type,
-            "site_hints": self.site_hints,
-            "freshness_hint": self.freshness_hint,
-        }
-
 
 # ---------------------------------------------------------------------------
 # Search tool protocol

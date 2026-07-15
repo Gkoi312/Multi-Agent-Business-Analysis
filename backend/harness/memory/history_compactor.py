@@ -147,37 +147,6 @@ class HistoryCompactor:
 
         return self._project_with_summary(recent_messages, effective_summary), effective_summary
 
-    async def acompact_history(
-        self,
-        messages: list[Any],
-        *,
-        running_summary: RunningSummary | None = None,
-    ) -> tuple[list[Any], RunningSummary | None]:
-        """Async variant of :meth:`compact_history`."""
-        if not self.model:
-            return list(messages), running_summary
-
-        old_messages, recent_messages = self._split_old_recent(messages)
-
-        if not old_messages:
-            if running_summary and running_summary.summary:
-                return self._project_with_summary(recent_messages, running_summary), running_summary
-            return list(messages), running_summary
-
-        new_summary = await self._summary_mgr.acompute_new_summary(
-            old_messages,
-            running_summary=running_summary,
-            model=self.model,
-            summary_prompt=self.summary_prompt,
-        )
-
-        effective_summary = new_summary if new_summary is not None else running_summary
-
-        if effective_summary is None or not effective_summary.summary:
-            return list(messages), running_summary
-
-        return self._project_with_summary(recent_messages, effective_summary), effective_summary
-
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------

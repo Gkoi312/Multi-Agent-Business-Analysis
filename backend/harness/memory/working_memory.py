@@ -228,15 +228,6 @@ class WorkingMemory:
                 if q and q not in self.unresolved_questions:
                     self.unresolved_questions.append(q)
 
-    def ingest_merged_memory(self, merged: MergedMemory) -> None:
-        """Sync from a MergedMemory snapshot (read-only, from WorkingMemory).
-
-        MergedMemory is a statistical snapshot — we sync tracking fields
-        but individual MemoryFact entries come from the reconciler.
-        """
-        self.unresolved_questions = list(merged.unresolved_questions)
-        self.turns_completed = max(self.turns_completed, 1)
-
     def to_merged_memory(self) -> MergedMemory:
         """Generate a read-only MergedMemory snapshot from current state."""
         return MergedMemory.from_working_memory(self, self.coverage_policy)

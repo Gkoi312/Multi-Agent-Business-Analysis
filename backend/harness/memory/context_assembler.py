@@ -204,21 +204,6 @@ class ContextAssembler:
             token_breakdown=breakdown,
         )
 
-    def assemble_context_str(self, result: ContextAssemblyResult) -> str:
-        """Render the assembly result as a single string for logging."""
-        lines = [
-            "=== System Prompt ===",
-            result.system_prompt[:500] + "..." if len(result.system_prompt) > 500 else result.system_prompt,
-            f"\n=== Research Summary ({result.token_breakdown.get('research_summary', 0)} tokens) ===",
-            result.research_summary,
-            f"\n=== Working Memory ({result.token_breakdown.get('working_memory', 0)} tokens) ===",
-            result.working_memory,
-            f"\n=== Recent Messages ({len(result.recent_raw_messages)} msgs, {result.token_breakdown.get('recent_messages', 0)} tokens) ===",
-            f"\n=== Search Digest ({result.token_breakdown.get('search_digest', 0)} tokens) ===",
-            result.current_search_digest,
-        ]
-        return "\n".join(lines)
-
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------

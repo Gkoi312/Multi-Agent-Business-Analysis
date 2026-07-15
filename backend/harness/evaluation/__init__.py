@@ -35,10 +35,7 @@ from harness.evaluation.reliability import (
     DimensionStats,
     CaseStats,
 )
-from harness.evaluation.runner import (
-    EvalRunResult,
-    EvalRunner,
-)
+from harness.evaluation.runner import EvalRunResult
 
 __all__ = [
     # scorer
@@ -66,5 +63,4 @@ __all__ = [
     "CaseStats",
     # runner
     "EvalRunResult",
-    "EvalRunner",
 ]

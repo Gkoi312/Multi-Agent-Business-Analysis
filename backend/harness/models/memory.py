@@ -85,10 +85,6 @@ class MemoryFact:
     def is_active(self) -> bool:
         return self.status == "active"
 
-    @property
-    def has_conflicts(self) -> bool:
-        return len(self.conflicts_with) > 0
-
     def to_dict(self) -> dict[str, Any]:
         return {
             "fact_id": self.fact_id,

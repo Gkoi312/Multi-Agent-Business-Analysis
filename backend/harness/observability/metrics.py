@@ -180,29 +180,7 @@ class MetricsCollector:
         self._calls.append(rec)
         return rec
 
-    def record_from_metrics(
-        self, node: str, llm_metrics: list[dict[str, Any]]
-    ) -> list[LLMCallRecord]:
-        """Convenience: record from the ``llm_metrics`` dicts emitted by nodes."""
-        records = []
-        for m in llm_metrics:
-            if not isinstance(m, dict):
-                continue
-            rec = self.record(
-                node=node,
-                model=str(m.get("model", "")),
-                prompt_tokens=int(m.get("prompt_tokens", 0) or 0),
-                completion_tokens=int(m.get("completion_tokens", 0) or 0),
-                latency_ms=int(m.get("latency_ms", 0) or 0),
-            )
-            records.append(rec)
-        return records
-
     # -- budget -------------------------------------------------------------
-
-    def set_budget(self, cap_usd: float) -> None:
-        """Set a cost budget cap.  Use :meth:`over_budget` to check."""
-        self._budget_cap = cap_usd
 
     @property
     def budget_cap(self) -> float | None:
@@ -354,22 +332,6 @@ class MetricsCollector:
                 )
             )
         return m
-
-    def format_for_log(self) -> str:
-        """One-line summary for log output."""
-        return (
-            f"[Metrics] calls={self.call_count} "
-            f"tokens={self.total_tokens} "
-            f"cost=${self.estimated_cost:.4f}"
-            + (
-                f" budget=${self._budget_cap:.2f} "
-                f"remaining=${self.budget_remaining:.4f}"
-                if self._budget_cap is not None
-                else ""
-            )
-            + (" ⚠️ OVER BUDGET" if self.over_budget else "")
-            + (" ⚡ nearing limit" if self.nearing_budget else "")
-        )
 
 
 # ---------------------------------------------------------------------------

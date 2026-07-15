@@ -31,7 +31,7 @@ from harness.evaluation.scorers.compression_fidelity import (
 )
 from harness.evaluation.scorers.pipeline_quality import PipelineQualityScorer
 from harness.evaluation.scorer import ScoreResult, Scorer, SCORER_REGISTRY, register_scorer
-from harness.evaluation.runner import EvalRunResult, EvalRunner
+from harness.evaluation.runner import EvalRunResult
 from harness.evaluation.reliability import (
     ReliabilityReport, _base_case_id, CaseStats, DimensionStats,
 )

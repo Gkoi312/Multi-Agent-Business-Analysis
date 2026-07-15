@@ -324,17 +324,6 @@ class ReliabilityReport:
             "- **N/A repeatability**: insufficient repeats — run with `--repeats 2` or more."])
         return "\n".join(lines)
 
-    def summary_table(self) -> str:
-        header = "| Dimension | Cases | Eligible | Mean | CV | Pass Rate | Perf | Repeat |"
-        sep = "|-----------|-------|----------|------|-----|-----------|------|--------|"
-        rows = [header, sep]
-        for ds in self.dimension_stats:
-            cv_str = f"{ds.mean_within_case_cv:.3f}" if ds.mean_within_case_cv is not None else "N/A"
-            rows.append(f"| {ds.dimension} | {ds.n_cases} | {ds.n_eligible_runs} "
-                       f"| {ds.macro_mean:.3f} | {cv_str} | {ds.pass_rate:.0%} "
-                       f"| {ds.performance_status} | {ds.repeatability_status} |")
-        return "\n".join(rows)
-
     def to_dict(self) -> dict[str, Any]:
         return {"dimension_stats": [ds.to_dict() for ds in self.dimension_stats],
                 "total_runs": self.total_runs, "total_cases": self.total_cases,

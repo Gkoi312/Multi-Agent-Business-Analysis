@@ -155,12 +155,3 @@ def list_scorers(layer: str | None = None) -> list[str]:
             k for k, s in SCORER_REGISTRY.items() if s.layer == layer
         )
     return sorted(SCORER_REGISTRY.keys())
-
-
-# Convenience: normalise a raw score into a status string
-def _status_from_normalized(n: float) -> str:
-    if n >= 0.85:
-        return "pass"
-    if n >= 0.60:
-        return "partial"
-    return "fail"

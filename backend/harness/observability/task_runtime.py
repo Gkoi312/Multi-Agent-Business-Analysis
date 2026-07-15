@@ -11,8 +11,8 @@ import time
 import uuid
 from typing import Any, Callable
 
-from app.logger import GLOBAL_LOGGER
-from app.config import RUNTIME_DIR
+from harness.observability.logger import GLOBAL_LOGGER
+from harness.observability.paths import default_runtime_dir
 
 
 class TaskRuntime:
@@ -22,8 +22,8 @@ class TaskRuntime:
     front-end (or any observer) can render progress in near-real-time.
     """
 
-    def __init__(self):
-        self.runtime_dir = os.fspath(RUNTIME_DIR)
+    def __init__(self, runtime_dir: str | None = None):
+        self.runtime_dir = os.fspath(runtime_dir if runtime_dir is not None else default_runtime_dir())
         os.makedirs(self.runtime_dir, exist_ok=True)
         self.tasks_path = os.path.join(self.runtime_dir, "tasks.json")
         self.events_path = os.path.join(self.runtime_dir, "task_events.jsonl")

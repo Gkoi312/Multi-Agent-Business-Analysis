@@ -229,19 +229,6 @@ def _extract_all_numbers_from_text(text: str) -> list[dict[str, Any]]:
     return results
 
 
-def _extract_numbers_from_texts(texts: list[str]) -> list[dict[str, Any]]:
-    """Extract and normalise all numbers from a list of text fragments."""
-    seen_raw: set[str] = set()
-    numbers: list[dict[str, Any]] = []
-    for text in texts:
-        for norm in _extract_all_numbers_from_text(text):
-            key = norm["raw"]
-            if key not in seen_raw:
-                seen_raw.add(key)
-                numbers.append(norm)
-    return numbers
-
-
 def _numbers_match(
     labeled: dict[str, Any],
     extracted: dict[str, Any],
