@@ -10,11 +10,19 @@ import time
 import uuid
 from typing import Any
 
-from app.exception.custom_exception import ResearchAnalystException
-from app.logger import GLOBAL_LOGGER
+from harness.exceptions import ResearchAnalystException
+from harness.observability.logger import GLOBAL_LOGGER
 from harness.memory.compressor import IncrementalCompressor
 from harness.memory.context_assembler import ContextAssembler
 from harness.memory.context_window import ContextWindowManager
+from harness.memory.nodes import (
+    build_working_memory_from_state,
+    format_working_memory_context,
+    make_compact_history_node,
+    make_compress_node,
+    make_should_continue_router,
+    make_update_memory_node,
+)
 from harness.memory.policies import MemoryDomainConfig, TokenBudget
 from harness.memory.search_digest import SearchDigestBuilder
 from harness.memory.working_memory import WorkingMemory
@@ -149,47 +157,17 @@ class InterviewGraphBuilder:
             ]
         )
 
-    @staticmethod
-    def _ensure_message_ids(messages: list[Any]) -> list[Any]:
-        """Ensure every message in the list has a persistent ID.
-
-        Messages without IDs get a UUID assigned. Returns a new list
-        (does not mutate originals in ways LangGraph can't track).
-        """
-        result = []
-        for msg in messages:
-            msg_id = getattr(msg, "id", None)
-            if not msg_id:
-                try:
-                    new_msg = msg.model_copy(update={"id": str(uuid.uuid4())})
-                    result.append(new_msg)
-                except Exception:
-                    result.append(msg)
-            else:
-                result.append(msg)
-        return result
-
     # ------------------------------------------------------------------
     # Round 3: Context Assembly helper
     # ------------------------------------------------------------------
 
     def _make_working_memory(self, state: InterviewState) -> WorkingMemory:
-        """Create a WorkingMemory from state, always with domain_config injected."""
-        wm_dict = state.get("working_memory") or {}
-        if wm_dict:
-            wm = WorkingMemory.from_dict(wm_dict)
-        else:
-            wm = WorkingMemory(
-                coverage_policy=self._domain_config.coverage_policy,
-                domain_config=self._domain_config,
-            )
-        # Ensure domain_config is set (from_dict may not preserve it)
-        if wm.domain_config is None:
-            wm.domain_config = self._domain_config
-        if wm._reconciler is None or wm._reconciler._domain_config is None:
-            from harness.memory.fact_reconciler import FactReconciler
-            wm._reconciler = FactReconciler(domain_config=self._domain_config)
-        return wm
+        """Create a WorkingMemory from state, always with domain_config injected.
+
+        Thin wrapper around the generic harness helper (kept as a method for
+        call-site convenience since ``self._domain_config`` is fixed per builder).
+        """
+        return build_working_memory_from_state(state, self._domain_config)
 
     def _assemble_llm_messages(
         self,
@@ -484,7 +462,7 @@ class InterviewGraphBuilder:
         assigned_plan = state.get("assigned_plan")
         domain_memory = state.get("domain_memory", []) or []
 
-        working_memory_block = self._build_working_memory_context(state)
+        working_memory_block = format_working_memory_context(state)
 
         try:
             self.logger.info("Generating analyst question", analyst=analyst.name)
@@ -768,7 +746,7 @@ class InterviewGraphBuilder:
         all_context = state.get("context", ["[No context available.]"])
         current_context = [all_context[-1]] if all_context else ["[No context available.]"]
 
-        working_memory_block = self._build_working_memory_context(state)
+        working_memory_block = format_working_memory_context(state)
 
         try:
             self.logger.info("Generating expert answer", analyst=analyst.name)
@@ -815,222 +793,6 @@ class InterviewGraphBuilder:
         except Exception as e:
             self.logger.error("Error generating expert answer", error=str(e))
             raise ResearchAnalystException("Failed to generate expert answer", e)
-
-    # ----------------------------------------------------------------------
-    # Step 3b: Compress current turn into structured summary
-    # ----------------------------------------------------------------------
-    def _compress(self, state: InterviewState):
-        """Compress the current Q&A round into a CompressedTurn.
-
-        Bug fixes:
-        - Only calls model ONCE (removed duplicate compress_turn + compress_completed_turn).
-        - Passes only CURRENT turn's registry (not accumulated history).
-        """
-        try:
-            question, answer = IncrementalCompressor.extract_last_question_and_answer(
-                state["messages"]
-            )
-            context = state.get("context", [])
-            search_summary = IncrementalCompressor.summarise_context(
-                [str(c) for c in (context[-3:] if len(context) > 3 else context)]
-            )
-
-            # Bug fix: use current-turn registry, not accumulated history
-            # _current_turn_registry is set by _search_web for this exact purpose
-            current_registry = state.get("_current_turn_registry") or {}
-            if not current_registry:
-                # Fallback: compute delta from full registry (less reliable)
-                current_registry = state.get("source_registry") or {}
-
-            turn_count = int(state.get("turn_count", 1) or 1)
-            self.logger.info("Compressing interview turn", turn=turn_count)
-
-            # Bug fix: single call — always use compress_completed_turn with registry
-            compressed = self.compressor.compress_completed_turn(
-                question=question,
-                answer=answer,
-                search_summary=search_summary,
-                source_registry=current_registry,
-            )
-
-            # Accumulate compressed history
-            compressed_history: list[dict] = list(state.get("compressed_turns", []) or [])
-            compressed_history.append(compressed.to_dict())
-
-            fact_count = len(compressed.facts) if compressed.facts else len(compressed.key_findings)
-            self.logger.info(
-                "Turn compressed",
-                turn=turn_count,
-                facts=fact_count,
-                quality=compressed.evidence_quality,
-            )
-
-            return {
-                "compressed_turns": compressed_history,
-                "workflow_events": [
-                    {
-                        "event": "compress.completed",
-                        "payload": {
-                            "turn": turn_count,
-                            "facts_extracted": fact_count,
-                        },
-                    }
-                ],
-            }
-
-        except Exception as e:
-            self.logger.error("Error compressing interview turn", error=str(e))
-            return {
-                "workflow_events": [
-                    {"event": "compress.failed", "payload": {"error": str(e)}}
-                ],
-            }
-
-    # ----------------------------------------------------------------------
-    # Step 3c: Update structured working memory (SOLE TRUTH SOURCE)
-    # ----------------------------------------------------------------------
-    def _update_memory(self, state: InterviewState):
-        """Sync the WorkingMemory from compressed turns.
-
-        Bug fix: domain_config flows into WorkingMemory → FactReconciler.
-        """
-        try:
-            wm = self._make_working_memory(state)
-            compressed_history: list[dict] = list(state.get("compressed_turns", []) or [])
-
-            # Only ingest facts from turns NOT yet processed
-            turns_to_ingest = compressed_history[wm.turns_completed:]
-
-            for turn_dict in turns_to_ingest:
-                turn = CompressedTurn.from_dict(turn_dict) if isinstance(turn_dict, dict) else turn_dict
-                wm.ingest_compressed_turn(turn)
-
-            snapshot = wm.to_merged_memory()
-
-            turn_count = int(state.get("turn_count", 1) or 1)
-            self.logger.info(
-                "Working memory updated",
-                turn=turn_count,
-                total_facts=snapshot.total_facts,
-                active_facts=wm.active_fact_count(),
-                gaps=wm.knowledge_gaps,
-                conflicts=len(wm.unresolved_conflicts),
-            )
-
-            return {
-                "working_memory": wm.to_dict(),
-                "memory_snapshot": snapshot.to_dict(),
-                "workflow_events": [
-                    {
-                        "event": "memory.updated",
-                        "payload": {
-                            "total_facts": snapshot.total_facts,
-                            "knowledge_gaps": wm.knowledge_gaps,
-                            "risk_flag_count": len(wm.risk_flags),
-                            "unresolved_conflicts": len(wm.unresolved_conflicts),
-                        },
-                    }
-                ],
-            }
-
-        except Exception as e:
-            self.logger.error("Error updating working memory", error=str(e))
-            return {
-                "workflow_events": [
-                    {"event": "memory.update_failed", "payload": {"error": str(e)}}
-                ],
-            }
-
-    # ----------------------------------------------------------------------
-    # Step 3d: History compaction (on pressure)
-    # ----------------------------------------------------------------------
-    def _compact_history(self, state: InterviewState):
-        """Run history compaction if the context window is under pressure."""
-        try:
-            messages = state["messages"]
-            rs_dict = state.get("running_summary") or {}
-            running_summary = RunningSummary.from_dict(rs_dict) if rs_dict else None
-
-            turn_count = int(state.get("turn_count", 1) or 1)
-
-            wm_str = self._build_working_memory_context(state)
-            ct_str = IncrementalCompressor.format_compressed_turns([
-                CompressedTurn.from_dict(d) if isinstance(d, dict) else d
-                for d in (state.get("compressed_turns") or [])
-            ])
-
-            if not self.compressor.should_compact_history(
-                messages,
-                turn_count=turn_count,
-                working_memory_str=wm_str,
-                compressed_turns_str=ct_str,
-            ):
-                return {
-                    "workflow_events": [
-                        {"event": "compact_history.skipped", "payload": {"reason": "below_threshold"}}
-                    ],
-                }
-
-            self.logger.info("Compacting conversation history", turn=turn_count)
-            projected, updated_rs = self.compressor.compact_history(
-                messages,
-                running_summary=running_summary,
-            )
-
-            if updated_rs is not None:
-                return {
-                    "running_summary": updated_rs.to_dict(),
-                    "workflow_events": [
-                        {"event": "compact_history.completed", "payload": {"version": updated_rs.version}}
-                    ],
-                }
-
-            return {
-                "workflow_events": [
-                    {"event": "compact_history.completed", "payload": {"version": running_summary.version if running_summary else 0}}
-                ],
-            }
-
-        except Exception as e:
-            self.logger.error("Error during history compaction", error=str(e))
-            return {
-                "workflow_events": [
-                    {"event": "compact_history.failed", "payload": {"error": str(e)}}
-                ],
-            }
-
-    # ----------------------------------------------------------------------
-    # Helper: build working memory context block for prompts
-    # ----------------------------------------------------------------------
-    @staticmethod
-    def _build_working_memory_context(state: InterviewState) -> str:
-        """Build a contextual block summarising what has been learned so far."""
-        wm_dict = state.get("working_memory") or {}
-        compressed = state.get("compressed_turns") or []
-
-        if not wm_dict and not compressed:
-            return ""
-
-        parts: list[str] = []
-
-        if wm_dict:
-            wm = WorkingMemory.from_dict(wm_dict)
-            if wm.active_fact_count() > 0:
-                parts.append(wm.format())
-
-        if compressed:
-            recent = compressed[-2:]
-            parts.append("\n## Compressed prior rounds")
-            for i, turn_dict in enumerate(recent):
-                try:
-                    turn = CompressedTurn.from_dict(turn_dict)
-                    turn_num = len(compressed) - len(recent) + i + 1
-                    parts.append(f"\n### Round {turn_num}")
-                    parts.append(turn.format())
-                except Exception:
-                    pass
-
-        return "\n".join(parts) if parts else ""
 
     def _save_interview(self, state: InterviewState):
         """Save the entire conversation as a transcript."""
@@ -1203,37 +965,20 @@ class InterviewGraphBuilder:
             self.logger.info("Building Interview Graph workflow")
             builder = StateGraph(InterviewState)
 
+            # ask_question / search_web / generate_answer / write_section /
+            # review_section are domain nodes — they own the prompts.
+            # compress / update_memory / compact_history / the continue-router
+            # are generic harness.memory node factories — no prompt, no
+            # domain vocabulary, only the compressor + domain_config as input.
             builder.add_node("ask_question", self._generate_question)
             builder.add_node("search_web", self._search_web)
             builder.add_node("generate_answer", self._generate_answer)
-            builder.add_node("compress", self._compress)
-            builder.add_node("update_memory", self._update_memory)
-            builder.add_node("compact_history", self._compact_history)
+            builder.add_node("compress", make_compress_node(self.compressor))
+            builder.add_node("update_memory", make_update_memory_node(self._domain_config))
+            builder.add_node("compact_history", make_compact_history_node(self.compressor))
             builder.add_node("save_interview", self._save_interview)
             builder.add_node("write_section", self._write_section)
             builder.add_node("review_section", self._review_section)
-
-            def _should_continue(state: InterviewState):
-                max_turns = int(state.get("max_num_turns", 1) or 1)
-                turn_count = int(state.get("turn_count", 0) or 0)
-
-                if turn_count >= max_turns:
-                    return "save_interview"
-
-                # Read from WorkingMemory (sole truth source)
-                wm_dict = state.get("working_memory") or {}
-                if wm_dict:
-                    wm = WorkingMemory.from_dict(wm_dict)
-                    if wm.has_sufficient_coverage():
-                        self.logger.info(
-                            "Coverage sufficient — stopping early",
-                            turn=turn_count,
-                            total_facts=wm.active_fact_count(),
-                            conflicts=len(wm.unresolved_conflicts),
-                        )
-                        return "save_interview"
-
-                return "ask_question"
 
             builder.add_edge(START, "ask_question")
             builder.add_edge("ask_question", "search_web")
@@ -1243,7 +988,7 @@ class InterviewGraphBuilder:
             builder.add_edge("update_memory", "compact_history")
             builder.add_conditional_edges(
                 "compact_history",
-                _should_continue,
+                make_should_continue_router(continue_node="ask_question", stop_node="save_interview"),
                 ["ask_question", "save_interview"],
             )
             builder.add_edge("save_interview", "write_section")

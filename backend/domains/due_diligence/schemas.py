@@ -14,7 +14,7 @@ from harness.models.agent import (
     ResearchPlan,
     ReviewSummary,
 )
-from harness.models.state import keep_latest
+from harness.models import keep_latest
 
 
 class GenerateAnalystsState(TypedDict):
