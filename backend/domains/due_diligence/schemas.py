@@ -32,6 +32,8 @@ class GenerateAnalystsState(TypedDict):
 class InterviewState(MessagesState):
     max_num_turns: int
     turn_count: int
+    company_name: str
+    focus: str
     context: Annotated[list, operator.add]
     analyst: Analyst
     skill_card: dict[str, Any]

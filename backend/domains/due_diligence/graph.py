@@ -844,6 +844,8 @@ class AutonomousReportGenerator:
 
             def initiate_all_interviews(state: ResearchGraphState):
                 research_query = state.get("research_query", "Unnamed due diligence task")
+                company_name = state.get("company_name", "") or ""
+                focus = state.get("focus", "") or ""
                 analysts = state.get("analysts", [])
                 research_plan = state.get("research_plan")
                 skill_bundle = state.get("skill_bundle", []) or []
@@ -876,6 +878,8 @@ class AutonomousReportGenerator:
                             "messages": [HumanMessage(content=f"Let's discuss this due diligence task: {research_query}", id=str(uuid.uuid4()))],
                             "max_num_turns": max_num_turns,
                             "turn_count": 0,
+                            "company_name": company_name,
+                            "focus": focus,
                             "context": [],
                             "retrieved_sources": [],
                             "router_decisions": [],

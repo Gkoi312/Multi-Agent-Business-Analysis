@@ -384,7 +384,7 @@ class InterviewGraphBuilder:
 
         pipeline_ctx = ToolContext(
             target_entity=target_entity,
-            target_focus="",
+            target_focus=state.get("focus", "") or "",
             source_type=source_type,
         )
         cleaned, trace = self.pipeline.run_with_trace(fetched, pipeline_ctx)
@@ -553,7 +553,7 @@ class InterviewGraphBuilder:
 
                 pipeline_ctx = ToolContext(
                     target_entity=state.get("company_name", "") or "",
-                    target_focus="",
+                    target_focus=state.get("focus", "") or "",
                     source_type=resolved_type,
                 )
                 cleaned, trace = self.pipeline.run_with_trace(raw_results, pipeline_ctx)
