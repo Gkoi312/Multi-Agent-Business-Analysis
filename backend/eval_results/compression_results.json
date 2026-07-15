@@ -1,0 +1,1055 @@
+[
+  {
+    "run_id": "comp_001_tesla_q3_r1",
+    "case_id": "comp_001_tesla_q3",
+    "fixture_file": "compression/comp_001_tesla_q3.json",
+    "score": {
+      "dimension": "compression_fidelity",
+      "value": 1.9,
+      "max_value": 2,
+      "normalized": 0.96,
+      "status": "partial",
+      "layer": "component",
+      "details": "LLM-Judge (validated): retention=100%, hallu=0%, num_ret=100%, num_hallu=40%. matched=7, partial=0, missed=0, hallucinations=0. Status: partial — Partial thresholds met but core thresholds not all satisfied",
+      "issues": [
+        "numeric_hallucination_rate = 40.00% (threshold: ≤ 5.00%)"
+      ],
+      "evidence": {
+        "judge_method": "llm",
+        "judge_attempts": 1,
+        "judge_validation_errors": [],
+        "fallback_used": false,
+        "labeled_fact_count": 7,
+        "extracted_fact_count": 8,
+        "same_model_self_judge": true,
+        "fact_retention": 1.0,
+        "hallucination_rate": 0.0,
+        "number_retention": 1.0,
+        "numeric_hallucination_rate": 0.4,
+        "matched": 7,
+        "partial": 0,
+        "missed": 0,
+        "hallucinations": 0,
+        "composite_score": 0.96,
+        "thresholds": {
+          "fact_retention_min": 0.9,
+          "hallucination_rate_max": 0.05,
+          "number_retention_min": 0.9,
+          "numeric_hallucination_rate_max": 0.05
+        },
+        "threshold_checks": {
+          "fact_retention": {
+            "value": 1.0,
+            "threshold": 0.9,
+            "passed": true
+          },
+          "hallucination_rate": {
+            "value": 0.0,
+            "threshold": 0.05,
+            "passed": true
+          },
+          "number_retention": {
+            "value": 1.0,
+            "threshold": 0.9,
+            "passed": true
+          },
+          "numeric_hallucination_rate": {
+            "value": 0.4,
+            "threshold": 0.05,
+            "passed": false
+          }
+        },
+        "status_reason": "Partial thresholds met but core thresholds not all satisfied",
+        "matched_numbers": [
+          {
+            "labeled": {
+              "raw": "8 % YoY revenue growth",
+              "normalized_value": 0.08,
+              "unit": "%",
+              "kind": "percentage",
+              "_labeled_idx": 1
+            },
+            "extracted": {
+              "raw": "8 % revenue year-over-year growth",
+              "normalized_value": 0.08,
+              "unit": "%",
+              "kind": "percentage",
+              "source_fields": [
+                "numbers_mentioned",
+                "facts.text",
+                "key_findings"
+              ],
+              "raw_variants": [
+                "8",
+                "8%"
+              ],
+              "_extracted_idx": 1
+            },
+            "match_quality": "exact"
+          },
+          {
+            "labeled": {
+              "raw": "19.8 % gross margin",
+              "normalized_value": 0.198,
+              "unit": "%",
+              "kind": "percentage",
+              "_labeled_idx": 3
+            },
+            "extracted": {
+              "raw": "19.8 % gross margin",
+              "normalized_value": 0.198,
+              "unit": "%",
+              "kind": "percentage",
+              "source_fields": [
+                "numbers_mentioned",
+                "facts.text",
+                "key_findings"
+              ],
+              "raw_variants": [
+                "19.8",
+                "19.8%"
+              ],
+              "_extracted_idx": 3
+            },
+            "match_quality": "exact"
+          },
+          {
+            "labeled": {
+              "raw": "17.2 % consensus margin",
+              "normalized_value": 0.172,
+              "unit": "%",
+              "kind": "percentage",
+              "_labeled_idx": 4
+            },
+            "extracted": {
+              "raw": "17.2 % consensus gross margin estimate",
+              "normalized_value": 0.172,
+              "unit": "%",
+              "kind": "percentage",
+              "source_fields": [
+                "numbers_mentioned",
+                "facts.text",
+                "key_findings"
+              ],
+              "raw_variants": [
+                "17.2",
+                "17.2%"
+              ],
+              "_extracted_idx": 4
+            },
+            "match_quality": "exact"
+          },
+          {
+            "labeled": {
+              "raw": "52 % energy storage growth",
+              "normalized_value": 0.52,
+              "unit": "%",
+              "kind": "percentage",
+              "_labeled_idx": 7
+            },
+            "extracted": {
+              "raw": "52 % energy storage revenue growth",
+              "normalized_value": 0.52,
+              "unit": "%",
+              "kind": "percentage",
+              "source_fields": [
+                "numbers_mentioned",
+                "facts.text",
+                "key_findings"
+              ],
+              "raw_variants": [
+                "52",
+                "52%"
+              ],
+              "_extracted_idx": 7
+            },
+            "match_quality": "exact"
+          },
+          {
+            "labeled": {
+              "raw": "25.18 billion_usd Q3 2025 revenue",
+              "normalized_value": 20253.0,
+              "unit": "",
+              "kind": "quarter",
+              "_labeled_idx": 0
+            },
+            "extracted": {
+              "raw": "Q3 2025  Q3 2025",
+              "normalized_value": 20253.0,
+              "unit": "",
+              "kind": "quarter",
+              "source_fields": [
+                "facts.text",
+                "key_findings",
+                "question_intent"
+              ],
+              "raw_variants": [
+                "Q3 2025"
+              ],
+              "_extracted_idx": 9
+            },
+            "match_quality": "exact"
+          },
+          {
+            "labeled": {
+              "raw": "25.47 billion_usd revenue consensus",
+              "normalized_value": 25470000000.0,
+              "unit": "",
+              "kind": "scaled",
+              "_labeled_idx": 2
+            },
+            "extracted": {
+              "raw": "$25.47 billion USD $25.47 billion",
+              "normalized_value": 25470000000.0,
+              "unit": "USD",
+              "kind": "currency",
+              "source_fields": [
+                "facts.text",
+                "key_findings"
+              ],
+              "raw_variants": [
+                "$25.47 billion"
+              ],
+              "_extracted_idx": 11
+            },
+            "match_quality": "exact"
+          },
+          {
+            "labeled": {
+              "raw": "2.18 billion_usd net income",
+              "normalized_value": 2180000000.0,
+              "unit": "",
+              "kind": "scaled",
+              "_labeled_idx": 5
+            },
+            "extracted": {
+              "raw": "$2.18 billion USD $2.18 billion",
+              "normalized_value": 2180000000.0,
+              "unit": "USD",
+              "kind": "currency",
+              "source_fields": [
+                "facts.text",
+                "key_findings"
+              ],
+              "raw_variants": [
+                "$2.18 billion"
+              ],
+              "_extracted_idx": 12
+            },
+            "match_quality": "exact"
+          },
+          {
+            "labeled": {
+              "raw": "2.7 billion_usd free cash flow",
+              "normalized_value": 2700000000.0,
+              "unit": "",
+              "kind": "scaled",
+              "_labeled_idx": 6
+            },
+            "extracted": {
+              "raw": "$2.7 billion USD $2.7 billion",
+              "normalized_value": 2700000000.0,
+              "unit": "USD",
+              "kind": "currency",
+              "source_fields": [
+                "facts.text",
+                "key_findings"
+              ],
+              "raw_variants": [
+                "$2.7 billion"
+              ],
+              "_extracted_idx": 13
+            },
+            "match_quality": "exact"
+          },
+          {
+            "labeled": {
+              "raw": "2.37 billion_usd energy storage revenue",
+              "normalized_value": 2370000000.0,
+              "unit": "",
+              "kind": "scaled",
+              "_labeled_idx": 8
+            },
+            "extracted": {
+              "raw": "$2.37 billion USD $2.37 billion",
+              "normalized_value": 2370000000.0,
+              "unit": "USD",
+              "kind": "currency",
+              "source_fields": [
+                "facts.text",
+                "key_findings"
+              ],
+              "raw_variants": [
+                "$2.37 billion"
+              ],
+              "_extracted_idx": 14
+            },
+            "match_quality": "exact"
+          }
+        ],
+        "missed_numbers": [],
+        "extra_numbers": [
+          {
+            "raw": "251.8 billion USD revenue",
+            "normalized_value": 251800000000.0,
+            "unit": "USD",
+            "kind": "currency",
+            "source_fields": [
+              "numbers_mentioned"
+            ],
+            "raw_variants": [
+              "251.8"
+            ],
+            "_extracted_idx": 0
+          },
+          {
+            "raw": "254.7 billion USD consensus revenue estimate",
+            "normalized_value": 254700000000.0,
+            "unit": "USD",
+            "kind": "currency",
+            "source_fields": [
+              "numbers_mentioned"
+            ],
+            "raw_variants": [
+              "254.7"
+            ],
+            "_extracted_idx": 2
+          },
+          {
+            "raw": "21.8 billion USD net income",
+            "normalized_value": 21800000000.0,
+            "unit": "USD",
+            "kind": "currency",
+            "source_fields": [
+              "numbers_mentioned"
+            ],
+            "raw_variants": [
+              "21.8"
+            ],
+            "_extracted_idx": 5
+          },
+          {
+            "raw": "27 billion USD free cash flow",
+            "normalized_value": 27000000000.0,
+            "unit": "USD",
+            "kind": "currency",
+            "source_fields": [
+              "numbers_mentioned"
+            ],
+            "raw_variants": [
+              "27"
+            ],
+            "_extracted_idx": 6
+          },
+          {
+            "raw": "23.7 billion USD energy storage revenue",
+            "normalized_value": 23700000000.0,
+            "unit": "USD",
+            "kind": "currency",
+            "source_fields": [
+              "numbers_mentioned"
+            ],
+            "raw_variants": [
+              "23.7"
+            ],
+            "_extracted_idx": 8
+          },
+          {
+            "raw": "$25.18 billion USD $25.18 billion",
+            "normalized_value": 25180000000.0,
+            "unit": "USD",
+            "kind": "currency",
+            "source_fields": [
+              "facts.text",
+              "key_findings"
+            ],
+            "raw_variants": [
+              "$25.18 billion"
+            ],
+            "_extracted_idx": 10
+          }
+        ]
+      },
+      "eligible": true
+    },
+    "duration_ms": 8381,
+    "error": null,
+    "compressed_output": {
+      "question_intent": "The analyst wanted to know Tesla's Q3 2025 revenue and gross margin, and how they compared to market expectations.",
+      "fact_count": 8,
+      "numbers_count": 9,
+      "unanswered": [],
+      "compression_error": ""
+    }
+  },
+  {
+    "run_id": "comp_002_apple_ai_r1",
+    "case_id": "comp_002_apple_ai",
+    "fixture_file": "compression/comp_002_apple_ai.json",
+    "score": {
+      "dimension": "compression_fidelity",
+      "value": 1.9,
+      "max_value": 2,
+      "normalized": 0.975,
+      "status": "partial",
+      "layer": "component",
+      "details": "LLM-Judge (validated): retention=100%, hallu=0%, num_ret=100%, num_hallu=25%. matched=7, partial=0, missed=0, hallucinations=0. Status: partial — Partial thresholds met but core thresholds not all satisfied",
+      "issues": [
+        "numeric_hallucination_rate = 25.00% (threshold: ≤ 5.00%)"
+      ],
+      "evidence": {
+        "judge_method": "llm",
+        "judge_attempts": 1,
+        "judge_validation_errors": [],
+        "fallback_used": false,
+        "labeled_fact_count": 7,
+        "extracted_fact_count": 7,
+        "same_model_self_judge": true,
+        "fact_retention": 1.0,
+        "hallucination_rate": 0.0,
+        "number_retention": 1.0,
+        "numeric_hallucination_rate": 0.25,
+        "matched": 7,
+        "partial": 0,
+        "missed": 0,
+        "hallucinations": 0,
+        "composite_score": 0.975,
+        "thresholds": {
+          "fact_retention_min": 0.9,
+          "hallucination_rate_max": 0.05,
+          "number_retention_min": 0.9,
+          "numeric_hallucination_rate_max": 0.05
+        },
+        "threshold_checks": {
+          "fact_retention": {
+            "value": 1.0,
+            "threshold": 0.9,
+            "passed": true
+          },
+          "hallucination_rate": {
+            "value": 0.0,
+            "threshold": 0.05,
+            "passed": true
+          },
+          "number_retention": {
+            "value": 1.0,
+            "threshold": 0.9,
+            "passed": true
+          },
+          "numeric_hallucination_rate": {
+            "value": 0.25,
+            "threshold": 0.05,
+            "passed": false
+          }
+        },
+        "status_reason": "Partial thresholds met but core thresholds not all satisfied",
+        "matched_numbers": [
+          {
+            "labeled": {
+              "raw": "15 billion_parameters on-device model size",
+              "normalized_value": 15000000000.0,
+              "unit": "",
+              "kind": "scaled",
+              "_labeled_idx": 0
+            },
+            "extracted": {
+              "raw": "15 billion parameters on-device model parameter count",
+              "normalized_value": 15000000000.0,
+              "unit": "",
+              "kind": "scaled",
+              "source_fields": [
+                "numbers_mentioned",
+                "facts.text",
+                "key_findings"
+              ],
+              "raw_variants": [
+                "15",
+                "15 billion"
+              ],
+              "_extracted_idx": 0
+            },
+            "match_quality": "exact"
+          },
+          {
+            "labeled": {
+              "raw": "2025 year iOS 19 launch",
+              "normalized_value": 2025.0,
+              "unit": "",
+              "kind": "count",
+              "_labeled_idx": 1
+            },
+            "extracted": {
+              "raw": "2025  2025",
+              "normalized_value": 2025.0,
+              "unit": "",
+              "kind": "count",
+              "source_fields": [
+                "facts.text",
+                "key_findings"
+              ],
+              "raw_variants": [
+                "2025"
+              ],
+              "_extracted_idx": 1
+            },
+            "match_quality": "exact"
+          },
+          {
+            "labeled": {
+              "raw": "19 version iOS version",
+              "normalized_value": 19.0,
+              "unit": "",
+              "kind": "count",
+              "_labeled_idx": 2
+            },
+            "extracted": {
+              "raw": "19  19",
+              "normalized_value": 19.0,
+              "unit": "",
+              "kind": "count",
+              "source_fields": [
+                "facts.text",
+                "key_findings"
+              ],
+              "raw_variants": [
+                "19"
+              ],
+              "_extracted_idx": 2
+            },
+            "match_quality": "exact"
+          }
+        ],
+        "missed_numbers": [],
+        "extra_numbers": [
+          {
+            "raw": "18  18",
+            "normalized_value": 18.0,
+            "unit": "",
+            "kind": "count",
+            "source_fields": [
+              "facts.text",
+              "key_findings"
+            ],
+            "raw_variants": [
+              "18"
+            ],
+            "_extracted_idx": 3
+          }
+        ]
+      },
+      "eligible": true
+    },
+    "duration_ms": 5816,
+    "error": null,
+    "compressed_output": {
+      "question_intent": "The analyst wanted to understand Apple's latest AI strategy developments and the specific details of its partnership with OpenAI.",
+      "fact_count": 7,
+      "numbers_count": 1,
+      "unanswered": [],
+      "compression_error": ""
+    }
+  },
+  {
+    "run_id": "comp_003_bytedance_r1",
+    "case_id": "comp_003_bytedance",
+    "fixture_file": "compression/comp_003_bytedance.json",
+    "score": {
+      "dimension": "compression_fidelity",
+      "value": 1.9,
+      "max_value": 2,
+      "normalized": 0.9546,
+      "status": "partial",
+      "layer": "component",
+      "details": "LLM-Judge (validated): retention=100%, hallu=0%, num_ret=100%, num_hallu=45%. matched=8, partial=0, missed=0, hallucinations=0. Status: partial — Partial thresholds met but core thresholds not all satisfied",
+      "issues": [
+        "numeric_hallucination_rate = 45.45% (threshold: ≤ 5.00%)"
+      ],
+      "evidence": {
+        "judge_method": "llm",
+        "judge_attempts": 1,
+        "judge_validation_errors": [],
+        "fallback_used": false,
+        "labeled_fact_count": 8,
+        "extracted_fact_count": 8,
+        "same_model_self_judge": true,
+        "fact_retention": 1.0,
+        "hallucination_rate": 0.0,
+        "number_retention": 1.0,
+        "numeric_hallucination_rate": 0.4545,
+        "matched": 8,
+        "partial": 0,
+        "missed": 0,
+        "hallucinations": 0,
+        "composite_score": 0.9546,
+        "thresholds": {
+          "fact_retention_min": 0.9,
+          "hallucination_rate_max": 0.05,
+          "number_retention_min": 0.9,
+          "numeric_hallucination_rate_max": 0.05
+        },
+        "threshold_checks": {
+          "fact_retention": {
+            "value": 1.0,
+            "threshold": 0.9,
+            "passed": true
+          },
+          "hallucination_rate": {
+            "value": 0.0,
+            "threshold": 0.05,
+            "passed": true
+          },
+          "number_retention": {
+            "value": 1.0,
+            "threshold": 0.9,
+            "passed": true
+          },
+          "numeric_hallucination_rate": {
+            "value": 0.4545,
+            "threshold": 0.05,
+            "passed": false
+          }
+        },
+        "status_reason": "Partial thresholds met but core thresholds not all satisfied",
+        "matched_numbers": [
+          {
+            "labeled": {
+              "raw": "30 % YoY growth",
+              "normalized_value": 0.3,
+              "unit": "%",
+              "kind": "percentage",
+              "_labeled_idx": 1
+            },
+            "extracted": {
+              "raw": "30 % ByteDance revenue growth year-over-year",
+              "normalized_value": 0.3,
+              "unit": "%",
+              "kind": "percentage",
+              "source_fields": [
+                "numbers_mentioned",
+                "facts.text",
+                "key_findings"
+              ],
+              "raw_variants": [
+                "30",
+                "30%"
+              ],
+              "_extracted_idx": 1
+            },
+            "match_quality": "exact"
+          },
+          {
+            "labeled": {
+              "raw": "120 billion_usd 2024 revenue",
+              "normalized_value": 120000000000.0,
+              "unit": "",
+              "kind": "scaled",
+              "_labeled_idx": 0
+            },
+            "extracted": {
+              "raw": "$120 billion USD $120 billion",
+              "normalized_value": 120000000000.0,
+              "unit": "USD",
+              "kind": "currency",
+              "source_fields": [
+                "facts.text",
+                "key_findings"
+              ],
+              "raw_variants": [
+                "$120 billion"
+              ],
+              "_extracted_idx": 5
+            },
+            "match_quality": "exact"
+          },
+          {
+            "labeled": {
+              "raw": "40 billion_usd TikTok ad revenue",
+              "normalized_value": 40000000000.0,
+              "unit": "",
+              "kind": "scaled",
+              "_labeled_idx": 2
+            },
+            "extracted": {
+              "raw": "$40 billion USD $40 billion",
+              "normalized_value": 40000000000.0,
+              "unit": "USD",
+              "kind": "currency",
+              "source_fields": [
+                "facts.text",
+                "key_findings"
+              ],
+              "raw_variants": [
+                "$40 billion"
+              ],
+              "_extracted_idx": 7
+            },
+            "match_quality": "exact"
+          },
+          {
+            "labeled": {
+              "raw": "2025 year divestiture deadline",
+              "normalized_value": 2025.0,
+              "unit": "",
+              "kind": "count",
+              "_labeled_idx": 5
+            },
+            "extracted": {
+              "raw": "2025  2025",
+              "normalized_value": 2025.0,
+              "unit": "",
+              "kind": "count",
+              "source_fields": [
+                "facts.text",
+                "key_findings"
+              ],
+              "raw_variants": [
+                "2025"
+              ],
+              "_extracted_idx": 8
+            },
+            "match_quality": "exact"
+          },
+          {
+            "labeled": {
+              "raw": "220 billion_usd valuation",
+              "normalized_value": 220000000000.0,
+              "unit": "",
+              "kind": "scaled",
+              "_labeled_idx": 3
+            },
+            "extracted": {
+              "raw": "$220 billion USD $220 billion",
+              "normalized_value": 220000000000.0,
+              "unit": "USD",
+              "kind": "currency",
+              "source_fields": [
+                "facts.text",
+                "key_findings"
+              ],
+              "raw_variants": [
+                "$220 billion"
+              ],
+              "_extracted_idx": 9
+            },
+            "match_quality": "exact"
+          },
+          {
+            "labeled": {
+              "raw": "300 billion_cny Douyin e-commerce GMV",
+              "normalized_value": 300000000000.0,
+              "unit": "",
+              "kind": "scaled",
+              "_labeled_idx": 4
+            },
+            "extracted": {
+              "raw": "300 billion RMB CNY 300 billion RMB",
+              "normalized_value": 300000000000.0,
+              "unit": "CNY",
+              "kind": "currency",
+              "source_fields": [
+                "facts.text",
+                "key_findings"
+              ],
+              "raw_variants": [
+                "300 billion RMB"
+              ],
+              "_extracted_idx": 10
+            },
+            "match_quality": "exact"
+          }
+        ],
+        "missed_numbers": [],
+        "extra_numbers": [
+          {
+            "raw": "1200 billion USD ByteDance 2024 revenue",
+            "normalized_value": 1200000000000.0,
+            "unit": "USD",
+            "kind": "currency",
+            "source_fields": [
+              "numbers_mentioned"
+            ],
+            "raw_variants": [
+              "1200"
+            ],
+            "_extracted_idx": 0
+          },
+          {
+            "raw": "400 billion USD TikTok advertising revenue",
+            "normalized_value": 400000000000.0,
+            "unit": "USD",
+            "kind": "currency",
+            "source_fields": [
+              "numbers_mentioned"
+            ],
+            "raw_variants": [
+              "400"
+            ],
+            "_extracted_idx": 2
+          },
+          {
+            "raw": "2200 billion USD ByteDance secondary market valuation",
+            "normalized_value": 2200000000000.0,
+            "unit": "USD",
+            "kind": "currency",
+            "source_fields": [
+              "numbers_mentioned"
+            ],
+            "raw_variants": [
+              "2200"
+            ],
+            "_extracted_idx": 3
+          },
+          {
+            "raw": "3000 billion RMB Douyin e-commerce GMV",
+            "normalized_value": 3000000000000.0,
+            "unit": "CNY",
+            "kind": "currency",
+            "source_fields": [
+              "numbers_mentioned"
+            ],
+            "raw_variants": [
+              "3000"
+            ],
+            "_extracted_idx": 4
+          },
+          {
+            "raw": "2024  2024",
+            "normalized_value": 2024.0,
+            "unit": "",
+            "kind": "count",
+            "source_fields": [
+              "facts.text",
+              "key_findings",
+              "question_intent"
+            ],
+            "raw_variants": [
+              "2024"
+            ],
+            "_extracted_idx": 6
+          }
+        ]
+      },
+      "eligible": true
+    },
+    "duration_ms": 7018,
+    "error": null,
+    "compressed_output": {
+      "question_intent": "The analyst wanted to understand ByteDance's 2024 revenue, overseas performance, and the specific regulatory risks facing TikTok.",
+      "fact_count": 8,
+      "numbers_count": 5,
+      "unanswered": [],
+      "compression_error": ""
+    }
+  },
+  {
+    "run_id": "comp_004_tesla_risk_r1",
+    "case_id": "comp_004_tesla_risk",
+    "fixture_file": "compression/comp_004_tesla_risk.json",
+    "score": {
+      "dimension": "compression_fidelity",
+      "value": 1.7,
+      "max_value": 2,
+      "normalized": 0.8381,
+      "status": "partial",
+      "layer": "component",
+      "details": "LLM-Judge (validated): retention=93%, hallu=0%, num_ret=67%, num_hallu=50%. matched=6, partial=1, missed=0, hallucinations=0. Status: partial — Partial thresholds met but core thresholds not all satisfied",
+      "issues": [
+        "number_retention = 66.67% (threshold: ≥ 90.00%)",
+        "numeric_hallucination_rate = 50.00% (threshold: ≤ 5.00%)"
+      ],
+      "evidence": {
+        "judge_method": "llm",
+        "judge_attempts": 1,
+        "judge_validation_errors": [],
+        "fallback_used": false,
+        "labeled_fact_count": 7,
+        "extracted_fact_count": 6,
+        "same_model_self_judge": true,
+        "fact_retention": 0.9286,
+        "hallucination_rate": 0.0,
+        "number_retention": 0.6667,
+        "numeric_hallucination_rate": 0.5,
+        "matched": 6,
+        "partial": 1,
+        "missed": 0,
+        "hallucinations": 0,
+        "composite_score": 0.8381,
+        "thresholds": {
+          "fact_retention_min": 0.9,
+          "hallucination_rate_max": 0.05,
+          "number_retention_min": 0.9,
+          "numeric_hallucination_rate_max": 0.05
+        },
+        "threshold_checks": {
+          "fact_retention": {
+            "value": 0.9286,
+            "threshold": 0.9,
+            "passed": true
+          },
+          "hallucination_rate": {
+            "value": 0.0,
+            "threshold": 0.05,
+            "passed": true
+          },
+          "number_retention": {
+            "value": 0.6667,
+            "threshold": 0.9,
+            "passed": false
+          },
+          "numeric_hallucination_rate": {
+            "value": 0.5,
+            "threshold": 0.05,
+            "passed": false
+          }
+        },
+        "status_reason": "Partial thresholds met but core thresholds not all satisfied",
+        "matched_numbers": [
+          {
+            "labeled": {
+              "raw": "45 % EU tariff rate",
+              "normalized_value": 0.45,
+              "unit": "%",
+              "kind": "percentage",
+              "_labeled_idx": 0
+            },
+            "extracted": {
+              "raw": "45 % EU tariff rate on China-made EVs",
+              "normalized_value": 0.45,
+              "unit": "%",
+              "kind": "percentage",
+              "source_fields": [
+                "numbers_mentioned",
+                "facts.text",
+                "key_findings"
+              ],
+              "raw_variants": [
+                "45",
+                "45%"
+              ],
+              "_extracted_idx": 0
+            },
+            "match_quality": "exact"
+          },
+          {
+            "labeled": {
+              "raw": "2.4 million_vehicles NHTSA investigation scope",
+              "normalized_value": 2400000.0,
+              "unit": "",
+              "kind": "scaled",
+              "_labeled_idx": 1
+            },
+            "extracted": {
+              "raw": "2400000 vehicles NHTSA investigation of FSD-equipped vehicles",
+              "normalized_value": 2400000.0,
+              "unit": "",
+              "kind": "count",
+              "source_fields": [
+                "numbers_mentioned"
+              ],
+              "raw_variants": [
+                "2400000"
+              ],
+              "_extracted_idx": 1
+            },
+            "match_quality": "exact"
+          }
+        ],
+        "missed_numbers": [
+          {
+            "raw": "2024 year BYD surpassed Tesla",
+            "normalized_value": 2024.0,
+            "unit": "",
+            "kind": "count",
+            "_labeled_idx": 2
+          }
+        ],
+        "extra_numbers": [
+          {
+            "raw": "Q4 2024  Q4 2024",
+            "normalized_value": 20244.0,
+            "unit": "",
+            "kind": "quarter",
+            "source_fields": [
+              "facts.text",
+              "key_findings"
+            ],
+            "raw_variants": [
+              "Q4 2024"
+            ],
+            "_extracted_idx": 2
+          },
+          {
+            "raw": "2.4 million  2.4 million",
+            "normalized_value": 2400000.0,
+            "unit": "",
+            "kind": "scaled",
+            "source_fields": [
+              "facts.text",
+              "key_findings"
+            ],
+            "raw_variants": [
+              "2.4 million"
+            ],
+            "_extracted_idx": 3
+          }
+        ]
+      },
+      "eligible": true
+    },
+    "duration_ms": 5744,
+    "error": null,
+    "compressed_output": {
+      "question_intent": "The analyst wanted to identify the main risks Tesla is currently facing in regulation, competition, and supply chain.",
+      "fact_count": 6,
+      "numbers_count": 2,
+      "unanswered": [],
+      "compression_error": ""
+    }
+  },
+  {
+    "run_id": "comp_005_no_results_r1",
+    "case_id": "comp_005_no_results",
+    "fixture_file": "compression/comp_005_no_results.json",
+    "score": {
+      "dimension": "compression_fidelity",
+      "value": 0,
+      "max_value": 2,
+      "normalized": 0.0,
+      "status": "fail",
+      "layer": "component",
+      "details": "No-result case: issues found",
+      "issues": [
+        "Fact count 1 exceeds allowed 0",
+        "Expected no numbers but generated 1",
+        "Expected unanswered items not preserved"
+      ],
+      "evidence": {
+        "case_type": "expected_no_results",
+        "checks": {
+          "fact_count_within_limit": false,
+          "no_numbers_generated": false,
+          "unanswered_preserved": false,
+          "no_error": true
+        },
+        "generated_fact_count": 1,
+        "generated_number_count": 1,
+        "unanswered_count": 3,
+        "compression_error": ""
+      },
+      "eligible": true
+    },
+    "duration_ms": 2040,
+    "error": null,
+    "compressed_output": {
+      "question_intent": "The analyst was trying to find the 2025 revenue data for a company named 'XYZ完全不存在的公司'.",
+      "fact_count": 1,
+      "numbers_count": 0,
+      "unanswered": [
+        "What is the 2025 revenue of XYZ完全不存在的公司?",
+        "Does the company XYZ完全不存在的公司 exist?",
+        "What is the correct full name of the company?"
+      ],
+      "compression_error": ""
+    }
+  }
+]

@@ -31,16 +31,29 @@ This is not a specific agent application — it is the **infrastructure layer (H
 - Chinese-first report output with KaiTi font, justified alignment, and CJK PDF support
 - Exportable reports in `DOCX` and `PDF`
 - Observable async task runtime with persisted state and event logs
+- **Three-layer evaluation framework** — component-level scorers (compression fidelity, pipeline quality), integration consistency checks, and end-to-end scoring, backed by real LLM-judge runs and a reliability report (CV/σ across repeats)
 
 ## Current Status
 
 - ✅ **Phase 1 complete**: Harness core layer separated from domain layer
 - ✅ **Phase 2 complete**: Tool integration — ToolRegistry + ToolPipeline + 9 cleaning stages + 7 search adapters
 - ✅ **Phase 3 complete**: Memory & context management — incremental compression, fact reconciliation, context assembly
+- ✅ **Phase 4 complete**: Evaluation framework — 3 scorers (compression fidelity, pipeline quality, source traceability), 7 consistency checks, fixture-driven runner with N-repeat reliability analysis
 - ✅ Full API + SPA flow: signup/login → submit company → generate analysts → human feedback → report → export
 - ✅ Persistent checkpoints with SqliteSaver — exact-node retry across server restarts
-- 🚧 **Phase 4 next**: Evaluation framework (fixture simulation, scoring, reliability analysis)
-- 📋 Phase 5: Polish & testing
+- ✅ 428 automated tests passing (`backend/tests/`)
+- 📋 Phase 5 next: polish, second domain to validate pluggability, CI integration
+
+### Evaluation results (real LLM runs, deepseek-chat, 3 repeats)
+
+| Metric | Result |
+|---|---|
+| Compression fact retention | 86% (CV 0.091 — stable) |
+| Compression hallucination rate | 0% |
+| Pipeline dedup recall / precision | 100% / 75% |
+| Source traceability (regex-only) | 3/3 fixture cases scored correctly |
+
+Full data: `backend/eval_results/` (raw run records + `reliability_report.md`).
 
 ## Tech Stack
 
@@ -85,9 +98,9 @@ This is not a specific agent application — it is the **infrastructure layer (H
 │   │   ├── api/                        # FastAPI routes + services
 │   │   ├── utils/                      # Model loader, etc.
 │   │   └── database/                   # User auth database
-│   ├── tests/                          # 🆕 Test suite
-│   │   └── harness/
-│   │       └── test_tools.py           # Tool pipeline unit tests (16 tests)
+│   ├── tests/                          # 🆕 Test suite (428 tests)
+│   │   ├── harness/                    # Unit/integration tests (memory, tools, eval scorers, checkpoint reliability, ...)
+│   │   └── fixtures/                   # Evaluation fixtures (compression/ pipeline/ end_to_end/)
 │   ├── .runtime/
 │   ├── generated_report/
 │   └── users.db
@@ -288,8 +301,8 @@ The domain code resolves backends by name automatically via `TOOL_REGISTRY.get_s
 | 1 | **Foundation**: Separate Harness core from Domain layer | ✅ Done |
 | 2 | **Tool Integration**: 9-stage search cleaning pipeline + multi-backend adapters | ✅ Done |
 | 3 | **Memory & Context**: Incremental compression + fact reconciliation + context assembly | ✅ Done |
-| 4 | **Evaluation Framework**: Fixture simulation + 5-dimension scorer + reliability analysis | 🚧 Next |
-| 5 | **Polish**: Unit tests + multi-industry fixtures + frontend visualization | 📋 Planned |
+| 4 | **Evaluation Framework**: Fixture simulation + component/integration/e2e scorers + reliability analysis | ✅ Done |
+| 5 | **Polish**: Second domain to prove pluggability + CI integration + frontend eval visualization | 📋 Planned |
 
 ## Limitations
 
@@ -297,6 +310,7 @@ The domain code resolves backends by name automatically via `TOOL_REGISTRY.get_s
 - User authentication is backed by local SQLite
 - Task state and event persistence are file-based
 - Report quality depends heavily on model selection, prompt quality, and external search results
+- Only one domain (due diligence) is actually implemented today; the "pluggable domain" architecture is in place but not yet validated with a second domain
 
 ## FAQ
 

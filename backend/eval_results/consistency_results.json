@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-07-12T09:03:02.310842+00:00",
+  "check_count": 7,
+  "passed": false,
+  "evaluated_real_state": false,
+  "dimension_name": "consistency_sanity_check",
+  "result": {
+    "passed": false,
+    "total_rules": 7,
+    "passed_rules": 6,
+    "failed_rules": 1,
+    "warned_rules": 0,
+    "error_count": 1,
+    "warning_count": 0,
+    "violations": [
+      {
+        "rule": "no_empty_compressed_turns",
+        "severity": "error",
+        "detail": "CompressedTurn[4] has no facts and no error"
+      }
+    ]
+  }
+}

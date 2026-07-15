@@ -1,0 +1,147 @@
+[
+  {
+    "run_id": "pipe_mixed_001_r1",
+    "case_id": "pipe_mixed_001",
+    "fixture_file": "pipeline/pipe_mixed_001.json",
+    "score": {
+      "dimension": "pipeline_quality",
+      "value": 1.3,
+      "max_value": 2,
+      "normalized": 0.6667,
+      "status": "fail",
+      "layer": "component",
+      "details": "Drop: precision=75%, recall=100%. FDR: 50% (1/2). Reason acc: 0.3333. TP=3, FP=1, FN=0, TN=1. Status: fail — One or more hard thresholds breached",
+      "issues": [
+        "drop_precision = 75.00% (threshold: ≥ 95.00%)",
+        "false_drop_rate = 50.00% (threshold: ≤ 10.00%)",
+        "reason_accuracy = 33.33% (threshold: ≥ 90.00%)"
+      ],
+      "evidence": {
+        "drop_precision": 0.75,
+        "drop_recall": 1.0,
+        "keep_precision": 1.0,
+        "keep_recall": 0.5,
+        "false_drop_rate": 0.5,
+        "false_drop_count": 1,
+        "expected_kept_count": 2,
+        "tp_dropped": 3,
+        "fp_dropped": 1,
+        "fn_dropped": 0,
+        "tn_kept": 1,
+        "total_input": 5,
+        "total_survived": 1,
+        "total_fixture_count": 5,
+        "per_stage_quality": {
+          "clean_text": {
+            "precision": 0.0,
+            "recall": null,
+            "false_drop_rate": 1.0,
+            "tp": 0,
+            "fp": 1,
+            "fn": 0,
+            "evaluable": true
+          },
+          "exact_dedup": {
+            "precision": null,
+            "recall": 0.0,
+            "false_drop_rate": null,
+            "tp": 0,
+            "fp": 0,
+            "fn": 1,
+            "evaluable": false
+          },
+          "relevance": {
+            "precision": 0.3333,
+            "recall": 1.0,
+            "false_drop_rate": 0.6667,
+            "tp": 1,
+            "fp": 2,
+            "fn": 0,
+            "evaluable": true
+          },
+          "quality": {
+            "precision": null,
+            "recall": 0.0,
+            "false_drop_rate": null,
+            "tp": 0,
+            "fp": 0,
+            "fn": 1,
+            "evaluable": false
+          }
+        },
+        "stage_attribution_coverage": 1.0,
+        "reason_accuracy": 0.3333,
+        "reason_accuracy_eligible": true,
+        "stage_accuracy": 0.3333,
+        "reason_confusion_matrix": [
+          {
+            "fixture_index": 1,
+            "expected_reason": "duplicate_url",
+            "actual_reason": "content_too_short:48",
+            "actual_stage": "clean_text",
+            "reason_correct": false,
+            "stage_correct": false
+          },
+          {
+            "fixture_index": 2,
+            "expected_reason": "low_quality",
+            "actual_reason": "low_relevance",
+            "actual_stage": "relevance",
+            "reason_correct": false,
+            "stage_correct": false
+          },
+          {
+            "fixture_index": 4,
+            "expected_reason": "low_relevance",
+            "actual_reason": "low_relevance",
+            "actual_stage": "relevance",
+            "reason_correct": true,
+            "stage_correct": true
+          }
+        ],
+        "wrongly_dropped_indices": [
+          0
+        ],
+        "wrongly_kept_indices": [],
+        "wrong_reason_indices": [
+          1,
+          2
+        ],
+        "composite_score": 0.6667,
+        "thresholds": {
+          "drop_precision_min": 0.95,
+          "drop_recall_min": 0.9,
+          "false_drop_rate_max": 0.1,
+          "reason_accuracy_min": 0.9
+        },
+        "threshold_checks": {
+          "drop_precision": {
+            "value": 0.75,
+            "threshold": 0.95,
+            "passed": false
+          },
+          "drop_recall": {
+            "value": 1.0,
+            "threshold": 0.9,
+            "passed": true
+          },
+          "false_drop_rate": {
+            "value": 0.5,
+            "threshold": 0.1,
+            "passed": false
+          },
+          "reason_accuracy": {
+            "value": 0.3333,
+            "threshold": 0.9,
+            "passed": false
+          }
+        },
+        "status_reason": "One or more hard thresholds breached",
+        "eval_errors": []
+      },
+      "eligible": true
+    },
+    "duration_ms": 5,
+    "error": null
+  }
+]
