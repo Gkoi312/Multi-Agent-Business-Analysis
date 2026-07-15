@@ -5,45 +5,49 @@ Each analyst runs its own interview instance in parallel (fan-out).
 Round 3: ContextAssembler wired into all LLM nodes, WorkingMemory as sole
 truth source, source registry for traceability, history compaction on pressure.
 """
-from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.memory import MemorySaver
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
-from langchain_core.messages import get_buffer_string
+
 import time
 import uuid
 from typing import Any
 
-from harness.models.agent import AnalystPlan, RetrievedSource, ReviewFinding, SearchQuery
+from app.exception.custom_exception import ResearchAnalystException
+from app.logger import GLOBAL_LOGGER
+from harness.memory.compressor import IncrementalCompressor
+from harness.memory.context_assembler import ContextAssembler
+from harness.memory.context_window import ContextWindowManager
+from harness.memory.policies import MemoryDomainConfig, TokenBudget
+from harness.memory.search_digest import SearchDigestBuilder
+from harness.memory.working_memory import WorkingMemory
+from harness.models.agent import (
+    AnalystPlan,
+    RetrievedSource,
+    ReviewFinding,
+    SearchQuery,
+)
 from harness.models.memory import (
     CompressedTurn,
-    MergedMemory,
+    ContextBudgetExceeded,
     RunningSummary,
     SearchDigest,
     SourceRecord,
-    ContextBudgetExceeded,
-    TokenCounter,
-    _now_iso,
 )
-from harness.memory.working_memory import WorkingMemory
-from harness.tools.search.base import SearchDocument, SearchQuery as ToolSearchQuery
-from harness.tools.pipeline import ToolPipeline, ToolContext
+from harness.tools.pipeline import ToolContext, ToolPipeline
 from harness.tools.registry import TOOL_REGISTRY, ToolRegistry
+from harness.tools.search.base import SearchDocument
+from harness.tools.search.base import SearchQuery as ToolSearchQuery
 from harness.tools.search.cleaner import SEARCH_PIPELINE_FULL
-from harness.memory.compressor import IncrementalCompressor
-from harness.memory.context_window import ContextWindowManager
-from harness.memory.context_assembler import ContextAssembler
-from harness.memory.search_digest import SearchDigestBuilder
-from harness.memory.policies import TokenBudget, CompactionPolicy, MemoryDomainConfig
-from domains.due_diligence.schemas import InterviewState
+from langchain_core.messages import HumanMessage, SystemMessage, get_buffer_string
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import END, START, StateGraph
+
 from domains.due_diligence.memory_config import DUE_DILIGENCE_MEMORY_CONFIG
 from domains.due_diligence.prompts.interview import (
     ANALYST_ASK_QUESTIONS,
-    GENERATE_SEARCH_QUERY,
     GENERATE_ANSWERS,
+    GENERATE_SEARCH_QUERY,
     WRITE_SECTION,
 )
-from app.logger import GLOBAL_LOGGER
-from app.exception.custom_exception import ResearchAnalystException
+from domains.due_diligence.schemas import InterviewState
 
 
 class InterviewGraphBuilder:
@@ -106,6 +110,11 @@ class InterviewGraphBuilder:
         if isinstance(obj, dict):
             return obj.get(key, default)
         return getattr(obj, key, default)
+
+    @staticmethod
+    def _now_iso() -> str:
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc).isoformat()
 
     @staticmethod
     def _format_skill_card(skill_card) -> str:
@@ -550,6 +559,7 @@ class InterviewGraphBuilder:
 
             provider, resolved_type = self._route_search(search_query, None)
             search_backend = self.tool_registry.get_search(provider)
+            cleaned: list[SearchDocument] = []
 
             if search_backend is not None:
                 # LLM sets site_hints + freshness_hint in SearchQuery
@@ -640,7 +650,7 @@ class InterviewGraphBuilder:
                         source_id=sid,
                         url=url,
                         title=doc.title or "",
-                        retrieved_at=_now_iso(),
+                        retrieved_at=self._now_iso(),
                     )
 
                     normalized_sources.append(
@@ -697,7 +707,7 @@ class InterviewGraphBuilder:
                         formatted_parts.append(f'<Document href="{href}"/>\n{source.snippet}\n</Document>')
                         current_turn_registry[sid] = SourceRecord(
                             source_id=sid, url=source.url, title=source.title,
-                            retrieved_at=_now_iso(),
+                            retrieved_at=self._now_iso(),
                         )
                         source.source_id = sid
                     formatted = "\n\n---\n\n".join(formatted_parts)
