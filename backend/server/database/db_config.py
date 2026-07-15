@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine, Column, String, Integer
 from sqlalchemy.orm import declarative_base, sessionmaker
 from passlib.context import CryptContext
-from app.config import DATABASE_URL
+from server.config import DATABASE_URL
 
 # Prefer pbkdf2 to avoid bcrypt 72-byte input limits and backend quirks.
 # Keep bcrypt in schemes for backward compatibility with any existing hashes.

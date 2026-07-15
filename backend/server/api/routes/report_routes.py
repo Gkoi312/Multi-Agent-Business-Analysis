@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 import uuid
 
-from app.api.models.request_models import (
+from server.api.models.request_models import (
     DueDiligenceRequest,
     FeedbackRequest,
     MessageResponse,
@@ -16,16 +16,16 @@ from app.api.models.request_models import (
     LoginRequest,
     SignupRequest,
 )
-from app.api.services.report_service import ReportService
-from app.api.services.session_store import SESSION_STORE
+from server.api.services.report_service import ReportService
+from server.api.services.session_store import SESSION_STORE
 from harness.observability.task_runtime import TASK_RUNTIME
-from app.config import (
+from server.config import (
     SESSION_COOKIE_MAX_AGE,
     SESSION_COOKIE_NAME,
     SESSION_COOKIE_SAMESITE,
     SESSION_COOKIE_SECURE,
 )
-from app.database.db_config import (
+from server.database.db_config import (
     SessionLocal,
     User,
     hash_password,
@@ -415,7 +415,7 @@ async def get_task_metrics(request: Request, task_id: str):
     task = _require_owned_task(task_id, username)
     from harness.observability.metrics import get_ledger
     from harness.observability.tracer import get_tracer
-    from app.api.models.request_models import MetricsResponse
+    from server.api.models.request_models import MetricsResponse
 
     # Serve stored snapshot for completed tasks (survives server restarts)
     snapshot = task.get("metrics_snapshot")

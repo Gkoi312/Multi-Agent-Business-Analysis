@@ -49,17 +49,3 @@ class ResearchAnalystException(Exception):
 
     def __repr__(self):
         return f"ResearchAnalystException(file={self.file_name!r}, line={self.lineno}, message={self.error_message!r})"
-
-
-# if __name__ == "__main__":
-#     # Demo-1: generic exception -> wrap
-#     try:
-#         a = 1 / 0
-#     except Exception as e:
-#         raise ResearchAnalystException("Division failed", e) from e
-
-#     # Demo-2: still supports sys (old pattern)
-#     # try:
-#     #     a = int("abc")
-#     # except Exception as e:
-#     #     raise ResearchAnalystException(e, sys)

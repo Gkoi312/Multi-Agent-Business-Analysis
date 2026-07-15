@@ -4,7 +4,7 @@ import secrets
 import threading
 import time
 
-from app.config import RUNTIME_DIR
+from server.config import RUNTIME_DIR
 
 
 class SessionStore:

@@ -42,7 +42,8 @@ class SkillRegistry:
 
     def __init__(self, base_dir: Path | None = None):
         if base_dir is None:
-            base_dir = Path(__file__).resolve().parents[2] / "skills"
+            # harness/skill_registry.py -> parents[1] is backend/
+            base_dir = Path(__file__).resolve().parents[1] / "skills"
         self.base_dir = base_dir
 
     # ------------------------------------------------------------------

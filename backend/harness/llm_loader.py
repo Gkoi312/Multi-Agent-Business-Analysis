@@ -3,8 +3,8 @@ import sys
 import json
 import asyncio
 from dotenv import load_dotenv
-from app.logger import GLOBAL_LOGGER as log
-from app.exception.custom_exception import ResearchAnalystException
+from harness.observability.logger import GLOBAL_LOGGER as log
+from harness.exceptions import ResearchAnalystException
 
 
 class ApiKeyManager:
@@ -137,22 +137,3 @@ class ModelLoader:
         except Exception as e:
             log.error("Error loading LLM", error=str(e))
             raise ResearchAnalystException("Failed to load LLM", sys)
-
-
-# ----------------------------------------------------------------------
-# 🔹 Standalone Testing
-# ----------------------------------------------------------------------
-if __name__ == "__main__":
-    try:
-        loader = ModelLoader()
-
-        # Test LLM
-        llm = loader.load_llm()
-        print(f"LLM Loaded: {llm}")
-        result = llm.invoke("Hello, how are you?")
-        print(f"LLM Result: {result.content[:200]}")
-
-        log.info("ModelLoader test completed successfully")
-
-    except ResearchAnalystException as e:
-        log.error("Critical failure in ModelLoader test", error=str(e))

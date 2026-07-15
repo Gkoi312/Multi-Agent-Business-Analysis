@@ -44,11 +44,11 @@ from domains.due_diligence.prompts.report import (
     INTRO_CONCLUSION_INSTRUCTIONS,
     REPORT_WRITER_INSTRUCTIONS,
 )
-from app.utils.model_loader import ModelLoader
-from app.services.skill_registry import SkillRegistry
-from app.logger import GLOBAL_LOGGER
-from app.exception.custom_exception import ResearchAnalystException
-from app.config import GENERATED_REPORT_DIR
+from harness.llm_loader import ModelLoader
+from harness.skill_registry import SkillRegistry
+from harness.observability.logger import GLOBAL_LOGGER
+from harness.exceptions import ResearchAnalystException
+from server.config import GENERATED_REPORT_DIR
 
 
 class AutonomousReportGenerator:
@@ -94,7 +94,8 @@ class AutonomousReportGenerator:
                 "SERPER_API_KEY, TAVILY_API_KEY, or BOCHA_API_KEY in your .env file.",
                 ValueError("No search backend configured"),
             )
-        self.skill_registry = SkillRegistry(Path(__file__).resolve().parents[3] / "skills")
+        # graph.py -> parents[2] is backend/
+        self.skill_registry = SkillRegistry(Path(__file__).resolve().parents[2] / "skills")
         self.logger = GLOBAL_LOGGER.bind(module="AutonomousReportGenerator")
 
     @staticmethod

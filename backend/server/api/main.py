@@ -3,10 +3,10 @@ from datetime import datetime
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.models.request_models import HealthResponse
-from app.api.routes import report_routes
+from server.api.models.request_models import HealthResponse
+from server.api.routes import report_routes
 from harness.observability.task_runtime import TASK_RUNTIME
-from app.config import FRONTEND_ORIGINS
+from server.config import FRONTEND_ORIGINS
 
 app = FastAPI(title="Autonomous Report Generator API")
 

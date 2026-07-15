@@ -48,7 +48,7 @@ def _save_markdown(text: str, filename: str) -> Path:
 
 
 def _load_llm(provider_env: str, model_env: str, fallback_provider_env: str, fallback_model_env: str) -> Any:
-    from app.utils.model_loader import ModelLoader
+    from harness.llm_loader import ModelLoader
     provider = os.getenv(provider_env) or os.getenv(fallback_provider_env) or "openai"
     model_name = os.getenv(model_env) or os.getenv(fallback_model_env) or "gpt-4o-mini"
     old_provider = os.environ.get("LLM_PROVIDER"); old_model = os.environ.get("LLM_MODEL_NAME")
