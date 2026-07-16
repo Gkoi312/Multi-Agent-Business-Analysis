@@ -4,7 +4,7 @@ Memory-loop node factories — generic LangGraph node callables for the
 segment of a multi-turn research loop.
 
 These factories contain zero domain vocabulary. They only read/write the
-state keys ``messages``, ``context``, ``turn_count``, ``max_num_turns``,
+state keys ``messages``, ``turn_count``, ``max_num_turns``,
 ``compressed_turns``, ``working_memory``, ``running_summary`` and
 ``_current_turn_registry`` / ``source_registry`` — the same generic
 contract any domain's TypedDict state already needs to satisfy to use
@@ -117,10 +117,9 @@ def format_working_memory_context(state: dict[str, Any]) -> str:
 def make_compress_node(compressor: IncrementalCompressor) -> Callable[[dict], dict]:
     """Build a ``compress`` node: turns the latest Q&A into a ``CompressedTurn``.
 
-    Reads the last human/ai message pair from ``state["messages"]``, the
-    last few ``state["context"]`` entries, and the current-turn source
-    registry (``state["_current_turn_registry"]``, falling back to
-    ``state["source_registry"]``). Appends the result to
+    Reads the last human/ai message pair from ``state["messages"]`` and the
+    current-turn source registry (``state["_current_turn_registry"]``,
+    falling back to ``state["source_registry"]``). Appends the result to
     ``state["compressed_turns"]``.
     """
 
@@ -128,10 +127,6 @@ def make_compress_node(compressor: IncrementalCompressor) -> Callable[[dict], di
         try:
             question, answer = IncrementalCompressor.extract_last_question_and_answer(
                 state["messages"]
-            )
-            context = state.get("context", [])
-            search_summary = IncrementalCompressor.summarise_context(
-                [str(c) for c in (context[-3:] if len(context) > 3 else context)]
             )
 
             current_registry = state.get("_current_turn_registry") or {}
@@ -144,7 +139,6 @@ def make_compress_node(compressor: IncrementalCompressor) -> Callable[[dict], di
             compressed = compressor.compress_completed_turn(
                 question=question,
                 answer=answer,
-                search_summary=search_summary,
                 source_registry=current_registry,
             )
 

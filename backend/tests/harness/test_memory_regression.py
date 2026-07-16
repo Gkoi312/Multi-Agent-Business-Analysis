@@ -45,7 +45,6 @@ from harness.memory.working_memory import WorkingMemory
 from harness.memory.running_summary import RunningSummaryManager
 from harness.memory.history_compactor import HistoryCompactor
 from harness.memory.context_assembler import ContextAssembler
-from harness.memory.search_digest import SearchDigestBuilder
 
 
 # ===========================================================================
@@ -794,19 +793,6 @@ class TestSearchDigestSourceRecord:
         sr2 = SourceRecord.from_dict(d)
         assert sr2.source_id == sr.source_id
         assert sr2.url == sr.url
-
-    def test_search_digest_with_registry(self):
-        builder = SearchDigestBuilder()
-        results = [
-            {"url": "https://a.com/1", "title": "Article 1", "content": "Content 1"},
-            {"url": "https://a.com/2", "title": "Article 2", "content": "Content 2"},
-        ]
-        digest = builder.build(query="test query", raw_results=results)
-        assert len(digest.source_registry) > 0
-        # tokens_after must include query, source IDs, snippets, claims, format
-        assert digest.tokens_after > 0
-        # tokens_before must be >= tokens_after (compression)
-        assert digest.tokens_before >= digest.tokens_after
 
     def test_search_digest_round_trip(self):
         registry = {"S1": SourceRecord(source_id="S1", url="https://a.com", title="A")}

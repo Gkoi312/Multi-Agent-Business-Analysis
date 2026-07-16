@@ -24,7 +24,6 @@ from harness.memory.nodes import (
     make_update_memory_node,
 )
 from harness.memory.policies import MemoryDomainConfig, TokenBudget
-from harness.memory.search_digest import SearchDigestBuilder
 from harness.memory.working_memory import WorkingMemory
 from harness.models.agent import (
     AnalystPlan,
@@ -106,9 +105,6 @@ class InterviewGraphBuilder:
             token_budget=self.token_budget,
             window_mgr=window_mgr,
         )
-        self.search_digest_builder = SearchDigestBuilder(
-            token_counter=lambda x: window_mgr.estimate_tokens(str(x)),
-        )
 
         self.memory = checkpointer or MemorySaver()
         self.logger = GLOBAL_LOGGER.bind(module="InterviewGraphBuilder")
@@ -174,13 +170,19 @@ class InterviewGraphBuilder:
         state: InterviewState,
         system_prompt: str,
         *,
-        include_search_digest: bool = False,
         include_recent_messages: bool = True,
     ) -> list:
         """Build the projected LLM input from canonical state.
 
         NEVER mutates state["messages"]. Returns a NEW list of messages
         for the LLM call only.
+
+        Search results are NOT injected here as a separate digest block —
+        every caller that needs search content already embeds the current
+        turn's full raw context (``state["context"][-1]``) directly into its
+        own system_prompt, which is a strict superset of what a digest of
+        the same round's results would add. Injecting both would just spend
+        tokens repeating the same information twice.
         """
         try:
             # 1. Restore WorkingMemory from state (with domain_config)
@@ -198,28 +200,20 @@ class InterviewGraphBuilder:
                 for d in compressed_turns_raw
             ]
 
-            # 4. Search digest
-            search_digest_str = ""
-            sd_dict = state.get("search_digest") or {}
-            if include_search_digest and sd_dict:
-                sd = SearchDigest.from_dict(sd_dict) if isinstance(sd_dict, dict) else sd_dict
-                search_digest_str = self._format_search_digest(sd)
-
-            # 5. Working memory formatted
+            # 4. Working memory formatted
             working_memory_str = wm.format() if wm.active_fact_count() > 0 else ""
 
-            # 6. Assemble via ContextAssembler
+            # 5. Assemble via ContextAssembler
             messages = state["messages"]
             result = self.context_assembler.assemble(
                 messages=messages,
                 system_prompt=system_prompt,
                 compressed_turns=compressed_turns,
                 working_memory_str=working_memory_str,
-                search_digest_str=search_digest_str if include_search_digest else "",
                 execution_summary=running_summary_str,
             )
 
-            # 7. Build actual LangChain messages
+            # 6. Build actual LangChain messages
             assembled: list = []
 
             # Build enriched system message
@@ -260,26 +254,6 @@ class InterviewGraphBuilder:
         except Exception as e:
             self.logger.error(f"Context assembly failed: {e}; falling back to system prompt only")
             return [SystemMessage(content=system_prompt)]
-
-    @staticmethod
-    def _format_search_digest(sd: SearchDigest) -> str:
-        """Format a SearchDigest as a compact string for the system prompt."""
-        if not sd or not sd.source_ids:
-            return ""
-        lines = [f"Search results for: {sd.query}"]
-        for i, sid in enumerate(sd.source_ids):
-            rec = sd.source_registry.get(sid)
-            title = ""
-            if rec:
-                title = getattr(rec, "title", "") or ""
-                if isinstance(rec, dict):
-                    title = rec.get("title", "")
-            lines.append(f"  [{sid}] {title}")
-        if sd.evidence_snippets:
-            lines.append("Key snippets:")
-            for s in sd.evidence_snippets[:3]:
-                lines.append(f"  - {s[:200]}")
-        return "\n".join(lines)
 
     # Provider priority order — first available wins (web search only).
     # Policy may override via ``preferred_provider`` or ``search_provider`` keys.
@@ -476,7 +450,7 @@ class InterviewGraphBuilder:
 
             started_at = time.perf_counter()
             assembled_messages = self._assemble_llm_messages(
-                state, system_prompt, include_search_digest=False, include_recent_messages=True,
+                state, system_prompt, include_recent_messages=True,
             )
             question = self.llm.invoke(assembled_messages)
 
@@ -527,7 +501,7 @@ class InterviewGraphBuilder:
 
             started_at = time.perf_counter()
             assembled_messages = self._assemble_llm_messages(
-                state, search_prompt, include_search_digest=False, include_recent_messages=True,
+                state, search_prompt, include_recent_messages=True,
             )
             search_query, query_usage = invoke_as_json(
                 self.llm, assembled_messages, SearchQuery,
@@ -608,22 +582,36 @@ class InterviewGraphBuilder:
                     existing_registry[str(k)] = v
                 # Find next available S-n index
                 next_idx = 1
-                for key in existing_registry:
+                # ---- Bug fix: reuse the existing source_id for a URL already
+                # registered in a prior round, instead of minting a new one
+                # each time the same article resurfaces (inflates
+                # independent_source_count with duplicate sources) ----
+                url_to_existing_sid: dict[str, str] = {}
+                for key, rec in existing_registry.items():
                     if key.startswith("S") and key[1:].isdigit():
                         n = int(key[1:])
                         if n >= next_idx:
                             next_idx = n + 1
+                    rec_url = rec.get("url") if isinstance(rec, dict) else getattr(rec, "url", "")
+                    if rec_url:
+                        url_to_existing_sid.setdefault(str(rec_url), key)
 
                 formatted_parts: list[str] = []
                 normalized_sources: list[RetrievedSource] = []
                 current_turn_registry: dict[str, SourceRecord] = {}
 
                 for doc in cleaned:
-                    sid = f"S{next_idx}"
-                    next_idx += 1
+                    url = doc.canonical_url or doc.url or ""
+                    existing_sid = url_to_existing_sid.get(url) if url else None
+                    if existing_sid:
+                        sid = existing_sid
+                    else:
+                        sid = f"S{next_idx}"
+                        next_idx += 1
+                        if url:
+                            url_to_existing_sid[url] = sid
                     formatted_parts.append(doc.metadata.get("formatted", str(doc)))
 
-                    url = doc.canonical_url or doc.url or ""
                     current_turn_registry[sid] = SourceRecord(
                         source_id=sid,
                         url=url,
@@ -643,13 +631,11 @@ class InterviewGraphBuilder:
                     )
                 formatted = "\n\n---\n\n".join(formatted_parts)
 
-                # Build SearchDigest
-                search_digest = self.search_digest_builder.build(
+                search_digest = SearchDigest(
                     query=search_query.search_query,
-                    raw_results=cleaned,
+                    source_ids=list(current_turn_registry.keys()),
+                    source_registry=current_turn_registry,
                 )
-                search_digest.source_registry = current_turn_registry
-                search_digest.source_ids = list(current_turn_registry.keys())
 
                 # Merge into accumulated registry
                 merged_registry = dict(existing_registry_raw)
@@ -669,18 +655,30 @@ class InterviewGraphBuilder:
                     formatted = "[No search results found.]"
                     search_digest = SearchDigest(query=search_query.search_query)
                 else:
-                    # Continue indexing from existing
+                    # Continue indexing from existing, reusing the existing
+                    # source_id for a URL already registered in a prior round
+                    # (see the primary search path above for why).
                     next_idx = 1
-                    for key in merged_registry:
+                    url_to_existing_sid: dict[str, str] = {}
+                    for key, rec in merged_registry.items():
                         if key.startswith("S") and key[1:].isdigit():
                             n = int(key[1:])
                             if n >= next_idx:
                                 next_idx = n + 1
+                        rec_url = rec.get("url") if isinstance(rec, dict) else getattr(rec, "url", "")
+                        if rec_url:
+                            url_to_existing_sid.setdefault(str(rec_url), key)
 
                     formatted_parts = []
                     for source in normalized_sources:
-                        sid = f"S{next_idx}"
-                        next_idx += 1
+                        existing_sid = url_to_existing_sid.get(source.url) if source.url else None
+                        if existing_sid:
+                            sid = existing_sid
+                        else:
+                            sid = f"S{next_idx}"
+                            next_idx += 1
+                            if source.url:
+                                url_to_existing_sid[source.url] = sid
                         href = source.url or "#"
                         formatted_parts.append(f'<Document href="{href}"/>\n{source.snippet}\n</Document>')
                         current_turn_registry[sid] = SourceRecord(
@@ -689,11 +687,11 @@ class InterviewGraphBuilder:
                         )
                         source.source_id = sid
                     formatted = "\n\n---\n\n".join(formatted_parts)
-                    search_digest = self.search_digest_builder.build(
-                        query=search_query.search_query, raw_results=search_docs,
+                    search_digest = SearchDigest(
+                        query=search_query.search_query,
+                        source_ids=list(current_turn_registry.keys()),
+                        source_registry=current_turn_registry,
                     )
-                    search_digest.source_registry = current_turn_registry
-                    search_digest.source_ids = list(current_turn_registry.keys())
                     for k, v in current_turn_registry.items():
                         merged_registry[str(k)] = v.to_dict() if hasattr(v, "to_dict") else v
 
@@ -760,7 +758,7 @@ class InterviewGraphBuilder:
 
             started_at = time.perf_counter()
             assembled_messages = self._assemble_llm_messages(
-                state, system_prompt, include_search_digest=True, include_recent_messages=True,
+                state, system_prompt, include_recent_messages=True,
             )
             answer = self.llm.invoke(assembled_messages)
 
@@ -840,7 +838,7 @@ class InterviewGraphBuilder:
 
             started_at = time.perf_counter()
             assembled_messages = self._assemble_llm_messages(
-                state, system_prompt, include_search_digest=True, include_recent_messages=True,
+                state, system_prompt, include_recent_messages=True,
             )
             # Append context — but after assembly. Budget check: we append and re-verify.
             assembled_messages.append(context_msg)

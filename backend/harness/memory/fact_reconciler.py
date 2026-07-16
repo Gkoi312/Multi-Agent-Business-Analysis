@@ -33,6 +33,7 @@ from harness.models.memory import (
     FactLedger,
     _normalize_fact_text,
     _now_iso,
+    evidence_quality_from_sources,
 )
 
 logger = logging.getLogger(__name__)
@@ -126,6 +127,14 @@ class FactReconciler:
                 continue
 
             if op == MemoryOperation.NONE:
+                # Same value, but possibly a NEW independent source confirming
+                # it — that's corroboration, not a no-op. Still merge
+                # source_ids and re-derive evidence_quality, or a second
+                # source agreeing with the first would be silently dropped.
+                for sid in new_fact.source_ids:
+                    if sid not in best.source_ids:
+                        best.source_ids.append(sid)
+                best.evidence_quality = evidence_quality_from_sources(best.source_ids)
                 operations_log.append({
                     "operation": MemoryOperation.NONE.value,
                     "fact_id": new_fact.fact_id,
@@ -152,17 +161,21 @@ class FactReconciler:
                 # Update the existing fact in-place
                 best.text = new_fact.text
                 best.normalized_text = new_fact.normalized_text or _normalize_fact_text(new_fact.text)
-                best.evidence_quality = new_fact.evidence_quality
                 best.turn_id = new_fact.turn_id
                 best.value = new_fact.value
                 best.unit = new_fact.unit
                 best.period = new_fact.period
                 best.subject = new_fact.subject or best.subject
                 best.predicate = new_fact.predicate or best.predicate
-                # Merge source IDs
+                # Merge source IDs, then re-derive evidence_quality from the
+                # MERGED count — corroboration by a later round (a second
+                # distinct source) must be able to upgrade quality, which is
+                # lost if we just overwrite with the new round's own
+                # (single-round) evidence_quality before merging.
                 for sid in new_fact.source_ids:
                     if sid not in best.source_ids:
                         best.source_ids.append(sid)
+                best.evidence_quality = evidence_quality_from_sources(best.source_ids)
                 best.updated_at = _now_iso()
                 # NOT using new_fact.fact_id — this preserves the existing ID
                 operations_log.append({

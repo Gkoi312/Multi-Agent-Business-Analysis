@@ -29,7 +29,6 @@ from harness.memory.working_memory import WorkingMemory as WM
 from harness.memory.fact_reconciler import FactReconciler
 from harness.memory.working_memory import WorkingMemory
 from harness.memory.context_assembler import ContextAssembler
-from harness.memory.search_digest import SearchDigestBuilder
 from harness.memory.running_summary import RunningSummaryManager
 from harness.memory.compressor import IncrementalCompressor
 from harness.memory.policies import (
@@ -562,36 +561,6 @@ class TestSummaryTokenBudget:
         )
         tokens = mgr.token_counter(result)
         assert tokens <= 10, f"Expected <=10 tokens, got {tokens}"
-
-
-# ===========================================================================
-# Scenario 9: SearchDigest token budget
-# ===========================================================================
-
-
-class TestSearchDigestTokenBudget:
-    def test_digest_stays_within_budget(self):
-        """SearchDigest with max_tokens=50 must not exceed it."""
-        builder = SearchDigestBuilder(
-            token_counter=lambda x: max(1, len(str(x)) // 4),
-            max_tokens=50,
-            max_snippets=5,
-            max_claims=5,
-        )
-        # 5 very long results
-        results = [
-            {"url": f"https://example.com/{i}", "title": f"Very long title number {i} with extra words " * 3,
-             "content": f"Extremely long content piece number {i} with many words " * 10}
-            for i in range(5)
-        ]
-        digest = builder.build(query="test query", raw_results=results)
-        assert digest.tokens_after <= 50, f"Expected <=50 tokens, got {digest.tokens_after}"
-
-    def test_digest_empty_results(self):
-        """Empty results produce tokens_after <= max_tokens."""
-        builder = SearchDigestBuilder(max_tokens=100)
-        digest = builder.build(query="test", raw_results=[])
-        assert digest.tokens_after <= 100
 
 
 # ===========================================================================

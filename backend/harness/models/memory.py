@@ -939,25 +939,6 @@ def _extract_json(text: str) -> dict[str, Any]:
     return {}
 
 
-def _extract_json_list(text: str) -> list[dict[str, Any]]:
-    """Try to parse a JSON array from an LLM response."""
-    cleaned = text.strip()
-    if cleaned.startswith("```"):
-        cleaned = re.sub(r"^```(?:json)?\s*\n?", "", cleaned)
-        cleaned = re.sub(r"\n?```\s*$", "", cleaned)
-    cleaned = cleaned.strip()
-    if cleaned.startswith("[") and cleaned.endswith("]"):
-        try:
-            return json.loads(cleaned)
-        except json.JSONDecodeError:
-            pass
-    d = _extract_json(text)
-    for v in d.values():
-        if isinstance(v, list):
-            return v
-    return []
-
-
 def _now_iso() -> str:
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat()
@@ -984,24 +965,20 @@ def _normalize_fact_text(text: str) -> str:
     return " ".join(words)
 
 
-def _facts_are_semantically_equivalent(a: str, b: str) -> bool:
-    """Quick heuristic check for semantic equivalence (token Jaccard).
+def evidence_quality_from_sources(source_ids: Sequence[str]) -> str:
+    """Derive evidence_quality mechanically from independent source count.
 
-    Used only in tests and legacy code — FactReconciler now uses SPDV matching.
+    Shared by the compressor (fresh facts) and the reconciler (facts whose
+    source_ids grow as later rounds corroborate them) so the same fact
+    always gets the same quality label for the same source count, whether
+    it's evaluated on first extraction or after a cross-round merge.
     """
-    na = set(_normalize_fact_text(a).split())
-    nb = set(_normalize_fact_text(b).split())
-    if not na or not nb:
-        return False
-    intersection = len(na & nb)
-    union = len(na | nb)
-    jaccard = intersection / union if union > 0 else 0.0
-    return jaccard >= 0.55
-
-
-def _source_id_for_url(url: str) -> str:
-    """Create a stable source ID from a URL."""
-    return hashlib.md5(url.encode()).hexdigest()[:12]
+    distinct_sources = len(set(source_ids))
+    if distinct_sources >= 2:
+        return "high"
+    if distinct_sources == 1:
+        return "medium"
+    return "low"
 
 
 def _stable_message_id(msg: Any, occurrence_key: str = "") -> str:

@@ -13,23 +13,20 @@ Key separation:
 """
 from __future__ import annotations
 
-import json
-import re
-import asyncio
 import logging
 from typing import Any
 
-from harness.models.memory import (
-    CompressedTurn,
-    MergedMemory,
-    MemoryFact,
-    TokenCounter,
-    _extract_json,
-    _now_iso,
-)
 from harness.memory.context_window import ContextWindowManager
 from harness.memory.history_compactor import HistoryCompactor
 from harness.memory.policies import CompactionPolicy, MemoryDomainConfig
+from harness.models.memory import (
+    CompressedTurn,
+    MemoryFact,
+    MergedMemory,
+    TokenCounter,
+    _extract_json,
+    evidence_quality_from_sources,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,9 +42,6 @@ infer, or elaborate.
 
 Analyst question:
 {question}
-
-Search context (summarised):
-{search_summary}
 
 Expert answer:
 {answer}
@@ -69,7 +63,6 @@ Return ONLY a JSON object (no markdown fences, no extra text) with these keys:
             "value": "the asserted numeric or string value",
             "unit": "unit of measurement if any (%, USD, etc.)",
             "period": "time period if any (2024, Q1 2025, etc.)",
-            "evidence_quality": "high|medium|low",
             "confidence": 0.0,
             "source_ids": ["S1", "S2"]
         }}
@@ -83,8 +76,6 @@ Rules:
 - primary_category: exactly ONE per fact from: {categories}
 - source_ids: ONLY use keys from the source registry above (S1, S2, etc.).
 - DO NOT generate URLs, DO NOT generate new source IDs.
-- evidence_quality: "high" if multiple specific sources backed the answer,
-  "medium" if somewhat sourced, "low" if vague or unsupported.
 - unanswered: list specific questions not resolved, or empty array if fully answered.
 - numbers_mentioned: only include if the answer contains explicit numeric data."""
 
@@ -155,10 +146,8 @@ class IncrementalCompressor:
         self,
         question: str,
         answer: str,
-        search_summary: str = "",
         *,
         source_registry: dict[str, Any] | None = None,
-        search_digest: Any = None,
     ) -> CompressedTurn:
         """Compress one Q&A round into a ``CompressedTurn``.
 
@@ -171,12 +160,8 @@ class IncrementalCompressor:
             The analyst's question text.
         answer : str
             The expert's full answer text.
-        search_summary : str
-            Summarised search results used for this turn.
         source_registry : dict | None
             Mapping of source_id (S1, S2) → SourceRecord. Models see only IDs.
-        search_digest : SearchDigest | None
-            Current search digest (alternative to source_registry).
 
         Returns
         -------
@@ -184,8 +169,6 @@ class IncrementalCompressor:
         """
         # Build source registry block for prompt
         registry = source_registry or {}
-        if search_digest is not None and not registry:
-            registry = getattr(search_digest, "source_registry", {}) or {}
 
         registry_lines = []
         for sid, rec in registry.items():
@@ -200,7 +183,6 @@ class IncrementalCompressor:
 
         prompt = _COMPRESS_TURN_PROMPT.format(
             question=question[:2000],
-            search_summary=search_summary[:3000],
             answer=answer[:4000],
             categories=self.categories_str,
             source_registry_block=source_registry_block,
@@ -326,13 +308,11 @@ class IncrementalCompressor:
         self,
         question: str,
         answer: str,
-        search_summary: str = "",
     ) -> CompressedTurn:
         """Legacy alias for :meth:`compress_completed_turn`."""
         return self.compress_completed_turn(
             question=question,
             answer=answer,
-            search_summary=search_summary,
         )
 
     def maybe_compress(
@@ -353,30 +333,6 @@ class IncrementalCompressor:
     # ==================================================================
     # Helpers for the interview graph
     # ==================================================================
-
-    @staticmethod
-    def summarise_context(context: list[str], max_chars: int = 3000) -> str:
-        """Crunch raw search context into a short summary for the compression prompt."""
-        if not context:
-            return "[No search context]"
-
-        parts: list[str] = []
-        total = 0
-        for item in reversed(context):
-            text = str(item)
-            text = re.sub(r"<[^>]+>", " ", text)
-            text = re.sub(r"\s+", " ", text).strip()
-            if len(text) < 50:
-                continue
-            if total + len(text) > max_chars:
-                parts.append(text[:max_chars - total] + "…")
-                break
-            parts.append(text)
-            total += len(text)
-            if total >= max_chars:
-                break
-
-        return "\n\n---\n\n".join(reversed(parts)) if parts else "[No search context after cleaning]"
 
     @staticmethod
     def extract_last_question_and_answer(
@@ -471,6 +427,11 @@ class IncrementalCompressor:
                         f"Valid IDs: {sorted(valid_sids)}. Skipping."
                     )
 
+            # Evidence quality is derived mechanically from independent
+            # source count, not judged by the LLM — it's arithmetic on data
+            # the compressor already extracts, not a separate reasoning task.
+            evidence_quality = evidence_quality_from_sources(source_ids)
+
             facts.append(MemoryFact(
                 text=text,
                 primary_category=category,
@@ -479,7 +440,7 @@ class IncrementalCompressor:
                 value=fdata.get("value"),
                 unit=str(fdata.get("unit")) if fdata.get("unit") else None,
                 period=str(fdata.get("period")) if fdata.get("period") else None,
-                evidence_quality=str(fdata.get("evidence_quality", "medium") or "medium"),
+                evidence_quality=evidence_quality,
                 confidence=float(fdata["confidence"]) if fdata.get("confidence") is not None else None,
                 source_ids=source_ids,
             ))

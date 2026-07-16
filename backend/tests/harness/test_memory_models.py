@@ -16,10 +16,7 @@ from harness.models.memory import (
     ContextAssemblyResult,
     CoveragePolicy,
     _extract_json,
-    _extract_json_list,
     _normalize_fact_text,
-    _facts_are_semantically_equivalent,
-    _source_id_for_url,
     _stable_message_id,
     _now_iso,
 )
@@ -299,14 +296,9 @@ class TestJSONExtraction:
     def test_extract_json_invalid_returns_empty(self):
         assert _extract_json("not json at all") == {}
 
-    def test_extract_json_list(self):
-        result = _extract_json_list('[{"id": "0", "text": "Hello"}]')
-        assert len(result) == 1
-        assert result[0]["id"] == "0"
-
 
 # ===========================================================================
-# Fact normalization and equivalence
+# Fact normalization
 # ===========================================================================
 
 
@@ -317,27 +309,6 @@ class TestFactNormalization:
         assert "has" not in norm
         assert "company strong revenue growth" in norm
 
-    def test_facts_are_semantically_equivalent(self):
-        assert _facts_are_semantically_equivalent(
-            "Company revenue grew 30% in fiscal 2025",
-            "Revenue grew 30 percent in fiscal year 2025",
-        )
-
-    def test_different_facts_not_equivalent(self):
-        assert not _facts_are_semantically_equivalent(
-            "Revenue grew by 30%",
-            "The CEO was fired last week",
-        )
-
-    def test_chinese_fact_semantic_comparison(self):
-        """Chinese facts with same meaning should match."""
-        result = _facts_are_semantically_equivalent(
-            "公司收入增长30%",
-            "公司收入增加了百分之三十",
-        )
-        # May or may not match depending on overlap; ensure no crash
-        assert isinstance(result, bool)
-
 
 # ===========================================================================
 # Stable ID helpers
@@ -345,16 +316,6 @@ class TestFactNormalization:
 
 
 class TestStableIDs:
-    def test_source_id_for_url_stable(self):
-        sid1 = _source_id_for_url("https://example.com/page1")
-        sid2 = _source_id_for_url("https://example.com/page1")
-        assert sid1 == sid2
-
-    def test_source_id_different_urls(self):
-        sid1 = _source_id_for_url("https://a.com/1")
-        sid2 = _source_id_for_url("https://a.com/2")
-        assert sid1 != sid2
-
     def test_stable_message_id_no_index_dependency(self):
         """_stable_message_id no longer takes index — uses intrinsic properties."""
         from langchain_core.messages import HumanMessage

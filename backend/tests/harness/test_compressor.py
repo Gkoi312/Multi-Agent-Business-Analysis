@@ -27,12 +27,12 @@ def mock_llm():
         '   "primary_category": "business_model",'
         '   "subject": "Revenue", "predicate": "source",'
         '   "value": "API subscriptions", "unit": "%", "period": "current",'
-        '   "evidence_quality": "high", "confidence": 0.9, "source_ids": ["S1"]},'
+        '   "confidence": 0.9, "source_ids": ["S1"]},'
         '  {"text": "Enterprise licensing is growing at 40% YoY",'
         '   "primary_category": "growth",'
         '   "subject": "Enterprise licensing", "predicate": "growth rate",'
         '   "value": 40, "unit": "%", "period": "YoY",'
-        '   "evidence_quality": "high", "confidence": 0.85, "source_ids": ["S2"]}'
+        '   "confidence": 0.85, "source_ids": ["S2"]}'
         '],'
         '"numbers_mentioned": [{"value": "60", "unit": "%", "context": "API share"}],'
         '"unanswered": [],'
@@ -90,12 +90,13 @@ class TestCompressCompletedTurn:
         turn = compressor.compress_completed_turn(
             question="What is the revenue model?",
             answer="API subscriptions drive 60% of revenue. Enterprise licensing grows at 40%.",
-            search_summary="Search found revenue breakdown data.",
             source_registry=registry,
         )
         assert isinstance(turn, CompressedTurn)
         assert len(turn.key_findings) > 0
-        assert turn.evidence_quality == "high"
+        # Each fact cites exactly one source -> "medium" (mechanically derived
+        # from source count, not the LLM's own claim).
+        assert turn.evidence_quality == "medium"
         assert len(turn.sources_cited) > 0
 
     def test_invalid_json_fallback_preserves_answer(self, mock_llm_invalid_json):
@@ -105,7 +106,6 @@ class TestCompressCompletedTurn:
         turn = compressor.compress_completed_turn(
             question="What is the revenue?",
             answer="The revenue was $1.6B in 2024 according to official filings.",
-            search_summary="Revenue data found.",
         )
         assert isinstance(turn, CompressedTurn)
         # Fallback should preserve answer content
@@ -241,20 +241,6 @@ class TestLegacyAPI:
 
 
 class TestHelpers:
-    def test_summarise_context(self):
-        context = [
-            "Result 1: Important data about revenue with detailed breakdown of sources and methodology used in the analysis process",
-            "Result 2: Brief note",
-            "Short",
-        ]
-        summary = IncrementalCompressor.summarise_context(context, max_chars=200)
-        assert isinstance(summary, str)
-        assert len(summary) > 0
-
-    def test_summarise_context_empty(self):
-        summary = IncrementalCompressor.summarise_context([])
-        assert "No search context" in summary
-
     def test_extract_last_question_and_answer(self):
         from langchain_core.messages import HumanMessage, AIMessage
         messages = [
@@ -283,35 +269,6 @@ class TestHelpers:
         formatted = IncrementalCompressor.format_compressed_turns(turns)
         assert "Round 1" in formatted
         assert "Fact 1" in formatted
-
-
-# ===========================================================================
-# SearchDigestBuilder
-# ===========================================================================
-
-
-class TestSearchDigestBuilder:
-    def test_build_from_dicts(self):
-        from harness.memory.search_digest import SearchDigestBuilder
-        builder = SearchDigestBuilder()
-        results = [
-            {"url": "https://a.com/1", "title": "OpenAI Revenue", "content": "OpenAI generated $1.6B in 2024."},
-            {"url": "https://a.com/2", "title": "OpenAI Growth", "content": "Revenue grew 30% YoY."},
-        ]
-        digest = builder.build(query="OpenAI revenue 2025", raw_results=results)
-        assert digest.query == "OpenAI revenue 2025"
-        assert len(digest.source_ids) > 0
-        assert len(digest.evidence_snippets) > 0
-        assert digest.tokens_before > 0
-        assert digest.tokens_after > 0
-
-    def test_build_from_empty(self):
-        from harness.memory.search_digest import SearchDigestBuilder
-        builder = SearchDigestBuilder()
-        digest = builder.build(query="test", raw_results=[])
-        assert digest.tokens_before == 0
-        # tokens_after includes query + format overhead even when empty
-        assert digest.tokens_after >= 0
 
 
 # ===========================================================================

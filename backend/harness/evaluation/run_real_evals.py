@@ -80,7 +80,6 @@ def run_compression_evals(compressor: Any, llm: Any, judge_llm: Any = None, repe
         case_id = fix.get("case_id", "unknown")
         turn = fix.get("original_turn", {})
         question = turn.get("question", "")
-        search_summary = turn.get("search_summary", "")
         answer = turn.get("answer", "")
         print(f"\n  [case] {case_id}")
         print(f"     Q: {question[:80]}...")
@@ -91,7 +90,7 @@ def run_compression_evals(compressor: Any, llm: Any, judge_llm: Any = None, repe
             started = time.perf_counter()
             try:
                 compressed = compressor.compress_completed_turn(
-                    question=question, answer=answer, search_summary=search_summary)
+                    question=question, answer=answer)
                 # Pass FULL fixture (not just labeled_facts/labeled_numbers)
                 score_result: ScoreResult = scorer.score(compressed_turn=compressed, fixture=fix)
                 duration_ms = int((time.perf_counter() - started) * 1000); error = None
