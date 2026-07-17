@@ -14,18 +14,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from harness.memory.fact_reconciler import FactReconciler
+from harness.memory.policies import VALID_PRIMARY_CATEGORIES
 from harness.models.memory import (
     CompressedTurn,
-    MergedMemory,
-    MemoryFact,
-    FactLedger,
     CoveragePolicy,
+    FactLedger,
+    MemoryFact,
+    MergedMemory,
     _normalize_fact_text,
-    _now_iso,
 )
-from harness.memory.policies import VALID_PRIMARY_CATEGORIES
-from harness.memory.fact_reconciler import FactReconciler
-
 
 # ===========================================================================
 # WorkingMemory

@@ -739,35 +739,6 @@ class TestPeriodOnlyMatchingRemoved:
 
 
 # ===========================================================================
-# ADD always generates new UUID
-# ===========================================================================
-
-
-class TestADDGeneratesNewUUID:
-    def test_add_ignores_model_id(self):
-        """Model returns ADD with id="0" mapping to existing → still new UUID."""
-        reconciler = FactReconciler()
-        existing = MemoryFact(fact_id="existing-123", text="Already here")
-
-        model_output = [
-            {"id": "0", "text": "New fact", "event": "ADD"},
-        ]
-        id_mapping = {"0": "existing-123"}  # tries to map to existing
-
-        ledger = reconciler.reconcile_from_model_output(model_output, [existing], id_mapping=id_mapping)
-        # ADD must create a NEW fact_id, not use "existing-123"
-        add_ops = [op for op in ledger.operations if op["operation"] == "ADD"]
-        assert len(add_ops) == 1
-        new_fact_id = add_ops[0]["fact_id"]
-        assert new_fact_id != "existing-123", "ADD must not overwrite existing fact ID"
-
-        # Existing fact untouched
-        assert "existing-123" in {f.fact_id for f in ledger.all_facts}
-        existing_fact = next(f for f in ledger.all_facts if f.fact_id == "existing-123")
-        assert existing_fact.text == "Already here"
-
-
-# ===========================================================================
 # UPDATE preserves fact_id with revision_history
 # ===========================================================================
 

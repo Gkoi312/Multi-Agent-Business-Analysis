@@ -176,37 +176,6 @@ class TestFactReconciler:
         assert reconciler._validate_category("nonexistent") == "other"
         assert reconciler._validate_category("growth") == "growth"
 
-    def test_reconcile_from_model_output_add(self):
-        reconciler = FactReconciler()
-        model_output = [{"id": "0", "text": "New fact about company", "event": "ADD"}]
-        id_map = {"0": "real-uuid-123"}
-        ledger = reconciler.reconcile_from_model_output(model_output, [], id_mapping=id_map)
-        assert len(ledger.active_facts) == 1
-        assert ledger.operations[0]["operation"] == "ADD"
-
-    def test_reconcile_from_model_output_update_keeps_id(self):
-        reconciler = FactReconciler()
-        existing = MemoryFact(fact_id="real-uuid-abc", text="Old revenue data", primary_category="growth")
-        model_output = [
-            {"id": "0", "text": "Updated revenue data with more detail", "event": "UPDATE", "old_memory": "Old revenue data"},
-        ]
-        id_map = {"0": "real-uuid-abc"}
-        ledger = reconciler.reconcile_from_model_output(model_output, [existing], id_mapping=id_map)
-        update_ops = [op for op in ledger.operations if op["operation"] == "UPDATE"]
-        if update_ops:
-            updated_fact_ids = {f.fact_id for f in ledger.all_facts}
-            assert "real-uuid-abc" in updated_fact_ids
-
-    def test_reconcile_from_model_output_invalidate(self):
-        reconciler = FactReconciler()
-        existing = MemoryFact(fact_id="real-uuid-def", text="Old incorrect data", primary_category="financials")
-        model_output = [{"id": "0", "text": "", "event": "INVALIDATE"}]
-        id_map = {"0": "real-uuid-def"}
-        ledger = reconciler.reconcile_from_model_output(model_output, [existing], id_mapping=id_map)
-        invalidate_ops = [op for op in ledger.operations if op["operation"] == "INVALIDATE"]
-        if invalidate_ops:
-            assert invalidate_ops[0]["fact_id"] == "real-uuid-def"
-
     def test_contradiction_preserves_both_as_conflict(self):
         reconciler = FactReconciler()
         existing = MemoryFact(

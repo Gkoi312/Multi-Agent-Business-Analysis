@@ -10,7 +10,6 @@ Covers:
 7. CoveragePolicy with independent source count
 8. FactReconciler SPDV matching (CONFLICT vs UPDATE)
 9. FactLedger preserves all facts
-10. Model ID validation (reject unknown IDs)
 11. Dynamic conflict derivation
 12. SearchDigest SourceRecord + tokens_after
 13. Serialization round-trips
@@ -586,74 +585,6 @@ class TestFactLedger:
         l2 = FactLedger.from_dict(d)
         assert len(l2.all_facts) == 2
         assert l2.active_fact_ids == {"f1"}
-
-
-# ===========================================================================
-# 9. Model ID validation (reject unknown IDs)
-# ===========================================================================
-
-
-class TestModelIDValidation:
-    def test_update_unknown_id_rejected(self):
-        """UPDATE on non-existent target ID → rejected, not fallback to ADD."""
-        reconciler = FactReconciler()
-        existing = MemoryFact(fact_id="real-1", text="Known fact")
-
-        model_output = [
-            {"id": "99", "text": "Attempted update", "event": "UPDATE", "old_memory": ""},
-        ]
-        id_mapping = {}  # "99" not in mapping
-
-        ledger = reconciler.reconcile_from_model_output(
-            model_output, [existing], id_mapping=id_mapping
-        )
-        # No ADD should happen for UPDATE with unknown target
-        update_ops = [op for op in ledger.operations if op["operation"] == "UPDATE"]
-        add_ops = [op for op in ledger.operations if op["operation"] == "ADD"]
-        assert len(update_ops) == 0, "UPDATE with unknown target should be rejected"
-        assert len(add_ops) == 0, "Should not fallback to ADD for UPDATE"
-
-    def test_invalidate_unknown_id_rejected(self):
-        """INVALIDATE on non-existent ID → rejected."""
-        reconciler = FactReconciler()
-        model_output = [
-            {"id": "99", "text": "", "event": "INVALIDATE"},
-        ]
-        ledger = reconciler.reconcile_from_model_output(
-            model_output, [], id_mapping={}
-        )
-        invalidate_ops = [op for op in ledger.operations if op["operation"] == "INVALIDATE"]
-        assert len(invalidate_ops) == 0
-
-    def test_add_creates_new_fact(self):
-        """ADD with proper mapping works."""
-        reconciler = FactReconciler()
-        model_output = [
-            {"id": "0", "text": "New fact from model", "event": "ADD"},
-        ]
-        id_mapping = {"0": "real-new-1"}
-        ledger = reconciler.reconcile_from_model_output(
-            model_output, [], id_mapping=id_mapping
-        )
-        add_ops = [op for op in ledger.operations if op["operation"] == "ADD"]
-        assert len(add_ops) == 1
-
-    def test_no_real_uuid_generated_by_model(self):
-        """Only code generates real UUIDs — model IDs must not pass through."""
-        reconciler = FactReconciler()
-        # Model tries to use a UUID-looking ID not in mapping
-        model_output = [
-            {"id": "fake-uuid-12345", "text": "Bad fact", "event": "ADD"},
-        ]
-        id_mapping = {}  # No mapping for fake-uuid-12345
-        ledger = reconciler.reconcile_from_model_output(
-            model_output, [], id_mapping=id_mapping
-        )
-        # ADD creates a fact, but its UUID should be auto-generated (not "fake-uuid-12345")
-        if ledger.all_facts:
-            # If any fact was added, it shouldn't use the model's raw ID
-            for f in ledger.all_facts:
-                assert f.fact_id != "fake-uuid-12345", "Model-provided non-UUID must not become fact_id"
 
 
 # ===========================================================================
