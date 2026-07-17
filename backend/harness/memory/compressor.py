@@ -22,7 +22,6 @@ from harness.memory.policies import CompactionPolicy, MemoryDomainConfig
 from harness.models.memory import (
     CompressedTurn,
     MemoryFact,
-    MergedMemory,
     TokenCounter,
     _extract_json,
     evidence_quality_from_sources,
@@ -233,16 +232,19 @@ class IncrementalCompressor:
         messages: list[Any],
         *,
         turn_count: int = 0,
-        system_prompt: str = "",
         working_memory_str: str = "",
         compressed_turns_str: str = "",
     ) -> bool:
-        """Check whether history compaction should run."""
+        """Check whether history compaction should run.
+
+        No ``system_prompt`` budget is added here: this check runs between
+        rounds, before the router picks the next node, so which system
+        prompt (and its length) will actually be used next isn't known yet.
+        """
         # Fast path: context window check
         if self.window_manager is not None:
             token_pressure = self.window_manager.should_compress(
                 messages=messages,
-                system_prompt=system_prompt,
                 working_memory_str=working_memory_str,
                 compressed_turns_str=compressed_turns_str,
             )
@@ -252,8 +254,7 @@ class IncrementalCompressor:
         # Secondary check: history compactor thresholds
         if self._get_history_compactor() is not None:
             extra = (
-                self.window_manager.estimate_tokens(system_prompt)
-                + self.window_manager.estimate_tokens(working_memory_str)
+                self.window_manager.estimate_tokens(working_memory_str)
                 + self.window_manager.estimate_tokens(compressed_turns_str)
             )
             return self._get_history_compactor().should_compact(
@@ -275,60 +276,6 @@ class IncrementalCompressor:
                 messages, running_summary=running_summary
             )
         return list(messages), running_summary
-
-    # ==================================================================
-    # C. Multi-turn merge (code-only, no LLM)
-    # ==================================================================
-
-    def merge_compressed(self, turns: list[CompressedTurn]) -> MergedMemory:
-        """Merge multiple compressed turns into a single ``MergedMemory``.
-
-        Purely code-based (no LLM call).  All counts derive from
-        MemoryFact objects in each turn.
-
-        Delegates to WorkingMemory for fact reconciliation — this is a
-        compatibility layer, not an independent truth source.
-        """
-        from harness.memory.working_memory import WorkingMemory
-
-        wm = WorkingMemory(coverage_policy=None)  # will use default
-        if self._domain_config and self._domain_config.coverage_policy:
-            wm.coverage_policy = self._domain_config.coverage_policy
-
-        for turn in turns:
-            wm.ingest_compressed_turn(turn)
-
-        return wm.to_merged_memory()
-
-    # ==================================================================
-    # Legacy API (preserved for backward compatibility)
-    # ==================================================================
-
-    def compress_turn(
-        self,
-        question: str,
-        answer: str,
-    ) -> CompressedTurn:
-        """Legacy alias for :meth:`compress_completed_turn`."""
-        return self.compress_completed_turn(
-            question=question,
-            answer=answer,
-        )
-
-    def maybe_compress(
-        self,
-        messages: list[Any],
-        system_prompt: str = "",
-        working_memory_str: str = "",
-        compressed_turns_str: str = "",
-    ) -> bool:
-        """Legacy alias for :meth:`should_compact_history`."""
-        return self.should_compact_history(
-            messages=messages,
-            system_prompt=system_prompt,
-            working_memory_str=working_memory_str,
-            compressed_turns_str=compressed_turns_str,
-        )
 
     # ==================================================================
     # Helpers for the interview graph

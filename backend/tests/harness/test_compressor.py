@@ -5,7 +5,7 @@ history compaction trigger, and context assembly.
 import pytest
 from unittest.mock import MagicMock, patch
 
-from harness.models.memory import CompressedTurn, MergedMemory
+from harness.models.memory import CompressedTurn
 from harness.memory.compressor import IncrementalCompressor
 from harness.memory.context_window import ContextWindowManager
 
@@ -156,35 +156,6 @@ class TestCompressCompletedTurn:
 
 
 # ===========================================================================
-# Multi-turn merge
-# ===========================================================================
-
-
-class TestMergeCompressed:
-    def test_merge_multiple_turns(self, mock_llm):
-        compressor = IncrementalCompressor(mock_llm)
-
-        turns = [
-            CompressedTurn(
-                question_intent="Revenue model?",
-                key_findings=["API is main revenue driver", "Enterprise contributes 40%"],
-                evidence_quality="high",
-                sources_cited=["https://a.com/1"],
-            ),
-            CompressedTurn(
-                question_intent="Growth trajectory?",
-                key_findings=["Services revenue grew 45% YoY", "User base doubled"],
-                evidence_quality="medium",
-                sources_cited=["https://a.com/2"],
-            ),
-        ]
-
-        memory = compressor.merge_compressed(turns)
-        assert memory.total_facts >= 1
-        assert memory.independent_source_count >= 1
-
-
-# ===========================================================================
 # History compaction trigger
 # ===========================================================================
 
@@ -210,29 +181,6 @@ class TestShouldCompactHistory:
         # should_compact_history delegates to window_manager.should_compress
         # which checks: total tokens > (500-100)*0.5 = 200
         assert compressor.should_compact_history(messages)
-
-
-# ===========================================================================
-# Legacy API compatibility
-# ===========================================================================
-
-
-class TestLegacyAPI:
-    def test_compress_turn_is_alias(self, mock_llm):
-        compressor = IncrementalCompressor(mock_llm)
-        turn = compressor.compress_turn(
-            question="Q?",
-            answer="A.",
-        )
-        assert isinstance(turn, CompressedTurn)
-
-    def test_maybe_compress_is_alias(self, mock_llm):
-        cwm = ContextWindowManager(max_tokens=500, reserved_tokens=100, safe_ratio=0.5)
-        compressor = IncrementalCompressor(mock_llm, window_manager=cwm)
-        from langchain_core.messages import HumanMessage
-        messages = [HumanMessage(content="x" * 1000)]
-        result = compressor.maybe_compress(messages)
-        assert isinstance(result, bool)
 
 
 # ===========================================================================

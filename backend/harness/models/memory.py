@@ -416,8 +416,8 @@ class CoveragePolicy:
 class CompressedTurn:
     """Structured summary of one interview/research round.
 
-    Produced by ``IncrementalCompressor.compress_turn()`` and accumulated
-    in ``InterviewState.compressed_turns``.
+    Produced by ``IncrementalCompressor.compress_completed_turn()`` and
+    accumulated in ``InterviewState.compressed_turns``.
 
     ``facts`` is the primary truth source — ``key_findings`` is a derived
     compatibility property.  For backward compatibility, constructor accepts
