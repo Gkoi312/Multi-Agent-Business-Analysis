@@ -77,8 +77,13 @@ class RunningSummaryManager:
         if not new_messages:
             return None
 
-        # Ensure last message isn't an orphaned AI tool-call without responses
-        new_messages = self._complete_tool_call_boundary(new_messages, messages)
+        # NOTE: no domain currently does LangChain-style tool-calling inside
+        # state["messages"] (search runs as a plain function call — see
+        # domains/due_diligence/interview.py's _search_web), so there's no
+        # AIMessage(tool_calls=...) / ToolMessage boundary to protect here.
+        # If a future domain adds a ReAct-style tool-calling agent, this
+        # method will need to ensure new_messages doesn't end on an AI
+        # tool-call whose ToolMessage responses land just outside the slice.
 
         # Don't summarize too few messages
         if len(new_messages) < 2:
@@ -137,43 +142,6 @@ class RunningSummaryManager:
 
         # Everything AFTER the last summarized message is new
         return list(messages[resume_idx + 1:])
-
-    def _complete_tool_call_boundary(
-        self,
-        new_messages: list[Any],
-        all_messages: list[Any],
-    ) -> list[Any]:
-        """Ensure we don't cut between an AI tool-call and its ToolMessage responses.
-
-        If the last new message is an AI message with tool calls, find all
-        corresponding ToolMessages that appear later in ``all_messages`` and
-        include them.
-        """
-        if not new_messages:
-            return new_messages
-
-        last_new = new_messages[-1]
-        tool_calls = getattr(last_new, "tool_calls", None)
-        if not tool_calls:
-            return new_messages
-
-        # Find the position of last_new in all_messages
-        last_new_id = getattr(last_new, "id", None)
-        new_start = 0
-        if last_new_id:
-            for i, msg in enumerate(all_messages):
-                if getattr(msg, "id", None) == last_new_id:
-                    new_start = i + 1
-                    break
-
-        # Collect ToolMessage responses for the pending tool calls
-        tool_call_ids = {tc.get("id") for tc in tool_calls if tc.get("id")}
-        for msg in all_messages[new_start:]:
-            if hasattr(msg, "tool_call_id") and msg.tool_call_id in tool_call_ids:
-                new_messages.append(msg)
-                tool_call_ids.discard(msg.tool_call_id)
-
-        return new_messages
 
     def _build_summary_block(self, messages: list[Any]) -> str:
         """Format messages as a text block for the summary prompt."""

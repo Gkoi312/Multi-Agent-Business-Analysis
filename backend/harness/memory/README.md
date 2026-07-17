@@ -37,19 +37,17 @@
                      ┌────────────────────────────────┐
                      │      ContextAssembler           │
                      │  ┌──────────────────────────┐  │
-                     │  │ 1. ToolContextPruner      │  │
-                     │  │    清理旧工具结果 (副本)    │  │
-                     │  │ 2. 构建 enriched system   │  │
+                     │  │ 1. 构建 enriched system   │  │
                      │  │    prompt                 │  │
-                     │  │ 3. 注入 research summary  │  │
+                     │  │ 2. 注入 research summary  │  │
                      │  │    (压缩后的历史轮次)       │  │
-                     │  │ 4. 注入 WorkingMemory     │  │
-                     │  │ 5. 保留近期原始 messages   │  │
-                     │  │ 6. 注入 SearchDigest      │  │
-                     │  │ 7. 注入 long-term facts   │  │
-                     │  │ 8. 验证 token 预算        │  │
-                     │  │ 9. 超限时按优先级收缩      │  │
-                     │  │ 10. 超限无法满足→抛异常    │  │
+                     │  │ 3. 注入 WorkingMemory     │  │
+                     │  │ 4. 保留近期原始 messages   │  │
+                     │  │ 5. 注入 SearchDigest      │  │
+                     │  │ 6. 注入 long-term facts   │  │
+                     │  │ 7. 验证 token 预算        │  │
+                     │  │ 8. 超限时按优先级收缩      │  │
+                     │  │ 9. 超限无法满足→抛异常     │  │
                      │  └──────────────────────────┘  │
                      └────────────┬───────────────────┘
                                   │ ContextAssemblyResult
@@ -76,7 +74,6 @@ backend/
 │   │   ├── context_window.py      # ContextWindowManager
 │   │   ├── running_summary.py     # RunningSummaryManager
 │   │   ├── history_compactor.py   # HistoryCompactor
-│   │   ├── context_editing.py     # ToolContextPruner
 │   │   ├── context_assembler.py   # ContextAssembler
 │   │   ├── fact_reconciler.py     # FactReconciler (SPDV matching)
 │   │   └── search_digest.py       # SearchDigestBuilder (SourceRecord)
@@ -106,7 +103,6 @@ backend/
 |------|------|------|
 | `TokenBudget` | `@dataclass` | 上下文各分区 token 预算（含 `min_current_turn`, `execution_summary`） |
 | `CompactionPolicy` | `@dataclass` | 历史压缩触发策略 |
-| `ToolPruneConfig` | `@dataclass` | 工具结果清理配置 |
 | `ContextWindowConfig` | `@dataclass` | ContextWindowManager 配置 |
 | `MemoryDomainConfig` | `@dataclass` | **Round 3** — 领域配置（类别、别名、策略），从 Domain 注入 Harness |
 | `VALID_PRIMARY_CATEGORIES` | `frozenset[str]` | 合法 primary category 白名单 |
@@ -125,7 +121,6 @@ backend/
 | `RunningSummary` | 增量摘要游标 |
 | `SearchDigest` | 搜索摘要（含 SourceRecord 注册表） |
 | `SourceRecord` | 来源元数据（source_id → URL/标题/检索时间） |
-| `ToolPruneResult` | 工具清理结果 |
 | `ContextAssemblyResult` | 组装后上下文 |
 | `ContextBudgetExceeded` | 超预算异常 |
 | `TokenCounter` | 类型安全 token 计数（count_text / count_message / count_messages） |
@@ -171,12 +166,6 @@ backend/
 - 明确新旧替代 → INVALIDATE
 - 严格 ID 验证 — UPDATE/INVALIDATE/CONFLICT 目标不存在则拒绝
 
-### context_editing.py — 工具结果清理
-
-- **修复**：`len(candidates) <= keep` 时不清理（不会清除 ≤ keep 个工具消息）
-- `clear_tool_inputs` 正确清理 AI tool-call args
-- 不修改 canonical messages
-
 ### context_assembler.py — 上下文组装
 
 - **严格预算**：返回 `total_tokens <= safe_limit` 或抛 `ContextBudgetExceeded`
@@ -199,7 +188,6 @@ backend/
 
 - 稳定消息 ID（不依赖列表 index；使用 role + content + tool_call_id + tool name）
 - 幂等：同一条消息在不同位置有相同 ID
-- Tool call 边界保护
 - **Round 3**: `max_summary_tokens` 真正强制执行 — 模型输出后验证、重新压缩、截断
 
 ### domains/due_diligence/memory_config.py — 领域配置（Round 3 新增）
@@ -460,8 +448,8 @@ $ python -m pytest backend/tests/harness/ -q
 | 限制 | 影响 | 缓解 |
 |------|------|------|
 | SPDV 字段需模型或代码填充 | 无 SPDV 时回落 text overlap 匹配 | 压缩 prompt 已指示模型输出 SPDV |
-| ToolContextPruner 依赖 `langchain_core.messages.ToolMessage` | 与 langchain 耦合 | 可抽象为 Protocol |
 | HistoryCompactor 需调用方管理 cursor | 需在 state 中新增字段 | InterviewState 已含 `running_summary` 字段 |
+| 无领域使用 LangChain tool-calling，故 tool_call/ToolMessage 边界保护未实现 | 若未来加入 ReAct 式工具调用 agent，`_split_old_recent` 与 `compute_new_summary` 需重新补上该保护 | 已在代码注释中标注 |
 | 中文关键词匹配基于白名单 | 部分中文事实可能分类不准确 | `other` fallback 兜底 |
 | 消息 ID 持久化依赖 `model_copy` | LangChain 不可变对象需复制 | 已通过 `model_copy(update={"id": ...})` 处理 |
 | 压缩 prompt 中的 source_registry_block 受 prompt 长度限制 | 超多来源时可能截断 | 限制最多 2000 搜索结果进行压缩 |

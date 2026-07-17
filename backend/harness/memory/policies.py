@@ -111,39 +111,6 @@ class CompactionPolicy:
 
 
 # ===========================================================================
-# Tool pruning policy
-# ===========================================================================
-
-
-@dataclass
-class ToolPruneConfig:
-    """Configuration for tool-context pruning.
-
-    Parameters
-    ----------
-    trigger_tokens : int
-        Total token count that triggers pruning.
-    reclaim_at_least_tokens : int
-        Minimum tokens to reclaim when pruning runs.
-    keep_recent_tool_results : int
-        Number of most-recent ToolMessages to preserve.
-    clear_tool_inputs : bool
-        Whether to also clear the originating AI tool-call args.
-    excluded_tools : list[str]
-        Tool names to exclude from clearing.
-    placeholder : str
-        Placeholder text for cleared tool outputs.
-    """
-
-    trigger_tokens: int = 100_000
-    reclaim_at_least_tokens: int = 0
-    keep_recent_tool_results: int = 3
-    clear_tool_inputs: bool = False
-    excluded_tools: list[str] = field(default_factory=list)
-    placeholder: str = "[cleared]"
-
-
-# ===========================================================================
 # MemoryDomainConfig — domain-injected configuration
 # ===========================================================================
 

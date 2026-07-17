@@ -306,50 +306,6 @@ class SearchDigest:
 
 
 # ===========================================================================
-# ToolPruneResult — result of tool context pruning
-# ===========================================================================
-
-
-@dataclass
-class ToolPruneResult:
-    """Outcome of a tool-context pruning pass."""
-
-    messages_before: int = 0
-    messages_after: int = 0
-    tokens_before: int = 0
-    tokens_after: int = 0
-    tools_cleared: int = 0
-    tokens_reclaimed: int = 0
-
-    @property
-    def reduction_ratio(self) -> float:
-        if self.tokens_before == 0:
-            return 0.0
-        return self.tokens_reclaimed / self.tokens_before
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "messages_before": self.messages_before,
-            "messages_after": self.messages_after,
-            "tokens_before": self.tokens_before,
-            "tokens_after": self.tokens_after,
-            "tools_cleared": self.tools_cleared,
-            "tokens_reclaimed": self.tokens_reclaimed,
-        }
-
-    @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "ToolPruneResult":
-        return cls(
-            messages_before=int(d.get("messages_before", 0) or 0),
-            messages_after=int(d.get("messages_after", 0) or 0),
-            tokens_before=int(d.get("tokens_before", 0) or 0),
-            tokens_after=int(d.get("tokens_after", 0) or 0),
-            tools_cleared=int(d.get("tools_cleared", 0) or 0),
-            tokens_reclaimed=int(d.get("tokens_reclaimed", 0) or 0),
-        )
-
-
-# ===========================================================================
 # CoveragePolicy — explicit strategy object
 # ===========================================================================
 

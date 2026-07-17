@@ -12,7 +12,6 @@ from harness.models.memory import (
     SearchDigest,
     CompressedTurn,
     MergedMemory,
-    ToolPruneResult,
     ContextAssemblyResult,
     CoveragePolicy,
     _extract_json,
@@ -324,21 +323,6 @@ class TestStableIDs:
         sid = _stable_message_id(msg, occurrence_key="")
         assert isinstance(sid, str)
         assert len(sid) > 0
-
-
-# ===========================================================================
-# ToolPruneResult tests
-# ===========================================================================
-
-
-class TestToolPruneResult:
-    def test_reduction_ratio(self):
-        r = ToolPruneResult(tokens_before=1000, tokens_after=600, tokens_reclaimed=400)
-        assert r.reduction_ratio == 0.4
-
-    def test_zero_before(self):
-        r = ToolPruneResult(tokens_before=0)
-        assert r.reduction_ratio == 0.0
 
 
 # ===========================================================================

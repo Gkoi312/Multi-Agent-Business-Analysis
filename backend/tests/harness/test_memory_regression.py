@@ -3,7 +3,6 @@ Regression tests for Round 2 Memory & Context fixes.
 
 Covers:
 1. TokenCounter split interface (count_text/count_message/count_messages)
-2. ToolContextPruner keep logic (<= keep → cleared 0)
 3. Stable message IDs (no index dependency)
 4. HistoryCompactor old/recent split (no summary/raw duplication)
 5. ContextAssembler budget enforcement + ContextBudgetExceeded
@@ -28,7 +27,6 @@ from harness.models.memory import (
     RunningSummary,
     SearchDigest,
     SourceRecord,
-    ToolPruneResult,
     FactLedger,
     CoveragePolicy,
     ContextAssemblyResult,
@@ -38,8 +36,7 @@ from harness.models.memory import (
     _normalize_fact_text,
 )
 from harness.memory.context_window import ContextWindowManager
-from harness.memory.context_editing import ToolContextPruner
-from harness.memory.policies import ToolPruneConfig, TokenBudget, CompactionPolicy
+from harness.memory.policies import TokenBudget, CompactionPolicy
 from harness.memory.fact_reconciler import FactReconciler
 from harness.memory.working_memory import WorkingMemory
 from harness.memory.running_summary import RunningSummaryManager
@@ -99,75 +96,6 @@ class TestTokenCounter:
         # Must not throw TypeError
         result = compactor.should_compact(messages, turn_count=3)
         assert isinstance(result, bool)
-
-
-# ===========================================================================
-# 2. ToolContextPruner keep logic
-# ===========================================================================
-
-
-class TestToolPrunerKeepLogic:
-    def test_2_tool_messages_keep_3_clears_0(self):
-        """2 tool messages + keep 3 → cleared 0 (len <= keep, return empty candidates)."""
-        from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-
-        config = ToolPruneConfig(trigger_tokens=10, keep_recent_tool_results=3)
-        pruner = ToolContextPruner(config=config, token_counter=_fake_token_counter)
-
-        messages = [
-            HumanMessage(content="query"),
-            AIMessage(content="ok", tool_calls=[{"id": "tc1", "name": "search", "args": {}}]),
-            ToolMessage(content="x" * 1000, tool_call_id="tc1", name="search"),
-            AIMessage(content="ok", tool_calls=[{"id": "tc2", "name": "search", "args": {}}]),
-            ToolMessage(content="x" * 1000, tool_call_id="tc2", name="search"),
-        ]
-
-        _, result = pruner.prune(messages)
-        assert result.tools_cleared == 0, f"Expected 0, got {result.tools_cleared}"
-
-    def test_3_tool_messages_keep_3_clears_0(self):
-        """3 tool messages + keep 3 → cleared 0."""
-        from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-
-        config = ToolPruneConfig(trigger_tokens=10, keep_recent_tool_results=3)
-        pruner = ToolContextPruner(config=config, token_counter=_fake_token_counter)
-
-        messages = [
-            HumanMessage(content="query"),
-            AIMessage(content="ok", tool_calls=[{"id": "tc1", "name": "search", "args": {}}]),
-            ToolMessage(content="x" * 1000, tool_call_id="tc1", name="search"),
-            AIMessage(content="ok", tool_calls=[{"id": "tc2", "name": "search", "args": {}}]),
-            ToolMessage(content="x" * 1000, tool_call_id="tc2", name="search"),
-            AIMessage(content="ok", tool_calls=[{"id": "tc3", "name": "search", "args": {}}]),
-            ToolMessage(content="x" * 1000, tool_call_id="tc3", name="search"),
-        ]
-
-        _, result = pruner.prune(messages)
-        assert result.tools_cleared == 0, f"Expected 0, got {result.tools_cleared}"
-
-    def test_5_tool_messages_keep_3_clears_2(self):
-        """5 tool messages + keep 3 → cleared 2 (clear 2 oldest, keep 3 newest)."""
-        from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-
-        config = ToolPruneConfig(trigger_tokens=10, keep_recent_tool_results=3)
-        pruner = ToolContextPruner(config=config, token_counter=_fake_token_counter)
-
-        messages = [
-            HumanMessage(content="query"),
-            AIMessage(content="ok", tool_calls=[{"id": "tc1", "name": "search", "args": {}}]),
-            ToolMessage(content="x" * 1000, tool_call_id="tc1", name="search"),
-            AIMessage(content="ok", tool_calls=[{"id": "tc2", "name": "search", "args": {}}]),
-            ToolMessage(content="x" * 1000, tool_call_id="tc2", name="search"),
-            AIMessage(content="ok", tool_calls=[{"id": "tc3", "name": "search", "args": {}}]),
-            ToolMessage(content="x" * 1000, tool_call_id="tc3", name="search"),
-            AIMessage(content="ok", tool_calls=[{"id": "tc4", "name": "search", "args": {}}]),
-            ToolMessage(content="x" * 1000, tool_call_id="tc4", name="search"),
-            AIMessage(content="ok", tool_calls=[{"id": "tc5", "name": "search", "args": {}}]),
-            ToolMessage(content="x" * 1000, tool_call_id="tc5", name="search"),
-        ]
-
-        _, result = pruner.prune(messages)
-        assert result.tools_cleared == 2, f"Expected 2, got {result.tools_cleared}"
 
 
 # ===========================================================================
@@ -818,15 +746,6 @@ class TestSearchDigestSourceRecord:
 
 
 class TestSerializationRoundTrips:
-    def test_tool_prune_result_round_trip(self):
-        r = ToolPruneResult(messages_before=10, messages_after=5,
-                            tokens_before=1000, tokens_after=500,
-                            tools_cleared=3, tokens_reclaimed=500)
-        d = r.to_dict()
-        r2 = ToolPruneResult.from_dict(d)
-        assert r2.tools_cleared == 3
-        assert r2.reduction_ratio == r.reduction_ratio
-
     def test_context_assembly_result_round_trip(self):
         r = ContextAssemblyResult(
             system_prompt="system",

@@ -20,7 +20,6 @@ from harness.models.memory import (
     CompressedTurn,
 )
 from harness.memory.policies import TokenBudget
-from harness.memory.context_editing import ToolContextPruner
 from harness.memory.context_window import ContextWindowManager
 
 
@@ -37,7 +36,7 @@ class ContextAssembler:
     1. Build a system-prompt block from domain memory, skill cards, etc.
     2. Inject compressed research progress (from ``CompressedTurn`` history).
     3. Inject current ``WorkingMemory`` content.
-    4. Include recent raw messages (pruned of old tool results if needed).
+    4. Include recent raw messages.
     5. Include current search digest (if any).
     6. Include retrieved long-term facts (if any).
     7. Include execution/running summary.
@@ -50,19 +49,15 @@ class ContextAssembler:
         Per-segment token allocation.
     window_mgr : ContextWindowManager
         Token estimation and budget validation.
-    tool_pruner : ToolContextPruner | None
-        Optional tool result pruning before assembly.
     """
 
     def __init__(
         self,
         token_budget: TokenBudget | None = None,
         window_mgr: ContextWindowManager | None = None,
-        tool_pruner: ToolContextPruner | None = None,
     ):
         self.budget = token_budget or TokenBudget()
         self.window_mgr = window_mgr or ContextWindowManager()
-        self.tool_pruner = tool_pruner
 
     # ------------------------------------------------------------------
     # Public API
@@ -250,17 +245,12 @@ class ContextAssembler:
     ) -> list[Any]:
         """Prepare recent messages for context injection.
 
-        Applies tool pruning if a pruner is configured.
         Handles single oversized messages.
         """
         recent = self._select_recent(messages, budget)
 
         # Handle single oversized message: truncate its content
         recent = self._handle_oversized_messages(recent, budget)
-
-        # Prune old tool results if configured
-        if self.tool_pruner:
-            recent, _ = self.tool_pruner.prune(recent)
 
         return recent
 

@@ -1,7 +1,6 @@
 """
 Tests for core memory components (updated for Round 2 fixes):
 - ContextWindowManager (validation, normalization, Chinese fallback, batch flush)
-- ToolContextPruner (clear tool results, placeholder, tool_call_id preservation)
 - FactReconciler (ADD, UPDATE, INVALIDATE, NONE, CONFLICT — returns FactLedger)
 - RunningSummaryManager (idempotent, incremental, tool-call boundary)
 - WorkingMemory (MemoryFact lifecycle, CoveragePolicy, dynamic properties)
@@ -10,12 +9,10 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from harness.memory.context_window import ContextWindowManager
-from harness.memory.context_editing import ToolContextPruner
 from harness.memory.fact_reconciler import FactReconciler
 from harness.memory.running_summary import RunningSummaryManager
 from harness.memory.working_memory import WorkingMemory
 from harness.memory.policies import (
-    ToolPruneConfig,
     VALID_PRIMARY_CATEGORIES,
 )
 from harness.models.memory import (
@@ -23,7 +20,6 @@ from harness.models.memory import (
     MemoryOperation,
     RunningSummary,
     CompressedTurn,
-    ToolPruneResult,
     FactLedger,
     CoveragePolicy,
 )
@@ -114,141 +110,6 @@ class TestContextWindowManager:
     def test_safe_limit_is_public_property(self):
         cwm = ContextWindowManager(max_tokens=1000, reserved_tokens=100, safe_ratio=0.5)
         assert cwm.safe_limit == 450
-
-
-# ===========================================================================
-# ToolContextPruner
-# ===========================================================================
-
-
-class TestToolContextPruner:
-    def test_no_prune_below_threshold(self):
-        config = ToolPruneConfig(trigger_tokens=100_000)
-        pruner = ToolContextPruner(config=config, token_counter=_fake_token_counter)
-        from langchain_core.messages import HumanMessage
-        messages = [HumanMessage(content="short message")]
-        result_messages, result = pruner.prune(messages)
-        assert result.tools_cleared == 0
-        assert result.messages_before == result.messages_after
-
-    def test_prune_clears_old_tool_results(self):
-        from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-        big_content = "x" * 50_000
-        messages = [
-            HumanMessage(content="initial query"),
-            AIMessage(content="searching", tool_calls=[{"id": "tc1", "name": "tavily_search", "args": {"query": "test"}}]),
-            ToolMessage(content=big_content, tool_call_id="tc1", name="tavily_search"),
-            ToolMessage(content=big_content, tool_call_id="tc2", name="tavily_search"),
-        ]
-        config = ToolPruneConfig(trigger_tokens=100, keep_recent_tool_results=0, placeholder="[cleared]")
-        pruner = ToolContextPruner(config=config, token_counter=_fake_token_counter)
-        result_messages, result = pruner.prune(messages)
-        assert result.tools_cleared > 0
-        cleared = [m for m in result_messages if getattr(m, "content", "") == "[cleared]"]
-        assert len(cleared) > 0
-
-    def test_pruned_tool_call_id_preserved(self):
-        from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-        big_content = "x" * 50_000
-        messages = [
-            HumanMessage(content="query"),
-            AIMessage(content="searching", tool_calls=[{"id": "tc-abc-123", "name": "tavily_search", "args": {"query": "test"}}]),
-            ToolMessage(content=big_content, tool_call_id="tc-abc-123", name="tavily_search"),
-        ]
-        config = ToolPruneConfig(trigger_tokens=100, keep_recent_tool_results=0)
-        pruner = ToolContextPruner(config=config, token_counter=_fake_token_counter)
-        result_messages, result = pruner.prune(messages)
-        tool_msgs = [m for m in result_messages if hasattr(m, "tool_call_id")]
-        for tm in tool_msgs:
-            assert tm.tool_call_id == "tc-abc-123"
-
-    def test_pruned_marked_in_metadata(self):
-        from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-        big_content = "x" * 50_000
-        messages = [
-            HumanMessage(content="query"),
-            AIMessage(content="searching", tool_calls=[{"id": "tc1", "name": "tavily_search", "args": {"query": "test"}}]),
-            ToolMessage(content=big_content, tool_call_id="tc1", name="tavily_search"),
-        ]
-        config = ToolPruneConfig(trigger_tokens=100, keep_recent_tool_results=0)
-        pruner = ToolContextPruner(config=config, token_counter=_fake_token_counter)
-        result_messages, result = pruner.prune(messages)
-        tool_msgs = [m for m in result_messages if hasattr(m, "tool_call_id")]
-        for tm in tool_msgs:
-            meta = getattr(tm, "response_metadata", {}) or {}
-            assert meta.get("context_editing", {}).get("cleared") is True
-
-    def test_keep_recent_tool_results(self):
-        from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-        big_content = "x" * 50_000
-        messages = [
-            HumanMessage(content="query"),
-            AIMessage(content="searching", tool_calls=[{"id": "tc1", "name": "tavily_search", "args": {"query": "test"}}]),
-            ToolMessage(content=big_content, tool_call_id="tc1", name="tavily_search"),
-            AIMessage(content="searching again", tool_calls=[{"id": "tc2", "name": "tavily_search", "args": {"query": "test2"}}]),
-            ToolMessage(content="short result", tool_call_id="tc2", name="tavily_search"),
-        ]
-        config = ToolPruneConfig(trigger_tokens=100, keep_recent_tool_results=1)
-        pruner = ToolContextPruner(config=config, token_counter=_fake_token_counter)
-        result_messages, result = pruner.prune(messages)
-        # With 2 tool messages + keep 1 → the oldest 1 should be cleared
-        tool_msgs = [m for m in result_messages if hasattr(m, "tool_call_id")]
-        cleared = [m for m in tool_msgs if getattr(m, "content", "") == "[cleared]"]
-        kept = [m for m in tool_msgs if getattr(m, "content", "") != "[cleared]"]
-        # At least 1 kept (the most recent)
-        assert len(kept) >= 1, f"Expected at least 1 kept tool result, got {len(kept)}"
-        # The kept one should be the last one ("short result")
-        assert kept[-1].tool_call_id == "tc2" if kept else True
-        # Original messages not mutated
-        assert messages[2].content == big_content
-        assert messages[4].content == "short result"
-
-    def test_original_messages_not_mutated(self):
-        from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-        big_content = "x" * 50_000
-        messages = [
-            HumanMessage(content="query"),
-            AIMessage(content="searching", tool_calls=[{"id": "tc1", "name": "tavily_search", "args": {"query": "test"}}]),
-            ToolMessage(content=big_content, tool_call_id="tc1", name="tavily_search"),
-        ]
-        config = ToolPruneConfig(trigger_tokens=100, keep_recent_tool_results=0)
-        pruner = ToolContextPruner(config=config, token_counter=_fake_token_counter)
-        _, _ = pruner.prune(messages)
-        assert messages[2].content == big_content
-
-    def test_clear_at_least_tokens_effective(self):
-        from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-        big_content = "y" * 50_000
-        messages = [
-            HumanMessage(content="query"),
-            ToolMessage(content=big_content, tool_call_id="tc1", name="tavily_search"),
-            ToolMessage(content=big_content, tool_call_id="tc2", name="tavily_search"),
-            ToolMessage(content=big_content, tool_call_id="tc3", name="tavily_search"),
-        ]
-        config = ToolPruneConfig(
-            trigger_tokens=100, keep_recent_tool_results=0, reclaim_at_least_tokens=5000,
-        )
-        pruner = ToolContextPruner(config=config, token_counter=_fake_token_counter)
-        _, result = pruner.prune(messages)
-        assert result.tokens_reclaimed >= 5000
-
-    def test_excluded_tools_not_pruned(self):
-        from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-        big_content = "x" * 50_000
-        messages = [
-            HumanMessage(content="query"),
-            AIMessage(content="searching", tool_calls=[{"id": "tc1", "name": "important_tool", "args": {}}]),
-            ToolMessage(content=big_content, tool_call_id="tc1", name="important_tool"),
-        ]
-        config = ToolPruneConfig(
-            trigger_tokens=100, keep_recent_tool_results=0, excluded_tools=["important_tool"],
-        )
-        pruner = ToolContextPruner(config=config, token_counter=_fake_token_counter)
-        result_messages, result = pruner.prune(messages)
-        important = [m for m in result_messages if getattr(m, "name", "") == "important_tool"]
-        assert len(important) > 0
-        if important:
-            assert important[0].content == big_content
 
 
 # ===========================================================================
@@ -399,29 +260,6 @@ class TestRunningSummaryManager:
         assert "msg-2" not in new_ids
         assert "msg-3" in new_ids
 
-    def test_tool_call_boundary_respected(self):
-        from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-        messages = [
-            HumanMessage(content="Search for OpenAI", id="msg-1"),
-            AIMessage(content="ok", tool_calls=[{"id": "tc-1", "name": "search", "args": {}}, {"id": "tc-2", "name": "search", "args": {}}], id="msg-2"),
-            ToolMessage(content="result 1", tool_call_id="tc-1", id="msg-3"),
-            ToolMessage(content="result 2", tool_call_id="tc-2", id="msg-4"),
-        ]
-        rs = RunningSummary(
-            summary="User asked a search question.",
-            summarized_message_ids={"msg-1"},
-            last_summarized_message_id="msg-1",
-            version=1,
-        )
-        mgr = RunningSummaryManager(token_counter=_fake_token_counter)
-        new_msgs = mgr._find_new_messages(messages, rs)
-        new_ids = [getattr(m, "id", None) for m in new_msgs]
-        assert "msg-2" in new_ids
-
-        completed = mgr._complete_tool_call_boundary(new_msgs, messages)
-        completed_ids = [getattr(m, "id", None) for m in completed]
-        assert "msg-3" in completed_ids
-        assert "msg-4" in completed_ids
 
     def test_stable_fallback_id_for_messages_without_id(self):
         from langchain_core.messages import HumanMessage

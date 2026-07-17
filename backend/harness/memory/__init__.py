@@ -12,13 +12,11 @@ from harness.memory.policies import (
     VALID_PRIMARY_CATEGORIES,
     TokenBudget,
     CompactionPolicy,
-    ToolPruneConfig,
     ContextWindowConfig,
     MemoryDomainConfig,
 )
 from harness.memory.running_summary import RunningSummaryManager
 from harness.memory.history_compactor import HistoryCompactor
-from harness.memory.context_editing import ToolContextPruner
 from harness.memory.context_assembler import ContextAssembler
 from harness.memory.fact_reconciler import FactReconciler
 
@@ -30,7 +28,6 @@ __all__ = [
     # New components
     "RunningSummaryManager",
     "HistoryCompactor",
-    "ToolContextPruner",
     "ContextAssembler",
     "FactReconciler",
     # Policies & config
@@ -39,7 +36,6 @@ __all__ = [
     "VALID_PRIMARY_CATEGORIES",
     "TokenBudget",
     "CompactionPolicy",
-    "ToolPruneConfig",
     "ContextWindowConfig",
     "MemoryDomainConfig",
 ]
