@@ -20,6 +20,5 @@
     {"value": "2025", "unit": "year", "context": "iOS 19 launch"},
     {"value": "19", "unit": "version", "context": "iOS version"}
   ],
-  "expected_evidence_quality": "high",
-  "expected_unanswered": []
+  "expected_evidence_quality": "high"
 }

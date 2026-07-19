@@ -308,7 +308,6 @@ DEFAULT_COMPRESSION_THRESHOLDS: dict[str, float] = {
 # Fields whose mere PRESENCE (not truthiness) triggers no-result scoring
 _NO_RESULT_FIELDS = {
     "expected_no_results",
-    "expected_unanswered",
     "allowed_fact_count",
     "expected_error",
 }
@@ -481,10 +480,8 @@ class CompressionFidelityScorer(Scorer):
     def _score_no_result_case(self, compressed_turn: Any, fixture: dict[str, Any]) -> ScoreResult:
         facts = self._extract_fact_texts(compressed_turn)
         nums = self._extract_all_numbers(compressed_turn)
-        unanswered = self._extract_unanswered(compressed_turn)
         comp_error = self._extract_compression_error(compressed_turn)
 
-        expected_unanswered_raw = fixture.get("expected_unanswered")
         allowed_fact_count = fixture.get("allowed_fact_count")
         expected_error = fixture.get("expected_error")
         expected_no_results = fixture.get("expected_no_results")
@@ -511,25 +508,6 @@ class CompressionFidelityScorer(Scorer):
             checks["no_numbers_generated"] = len(nums) == 0
             if not checks["no_numbers_generated"]:
                 issues.append(f"Expected no numbers but generated {len(nums)}")
-
-        # Unanswered check (handle bool and list types)
-        if expected_unanswered_raw is not None:
-            if isinstance(expected_unanswered_raw, bool):
-                if expected_unanswered_raw:
-                    checks["has_unanswered"] = len(unanswered) > 0
-                    if not checks["has_unanswered"]:
-                        issues.append("Expected at least one unanswered item but got none")
-                else:
-                    # expected_unanswered: False → must NOT have unanswered
-                    checks["no_unanswered"] = len(unanswered) == 0
-                    if not checks["no_unanswered"]:
-                        issues.append(f"Expected no unanswered but got {len(unanswered)}")
-            elif isinstance(expected_unanswered_raw, list):
-                answered = set(str(u).strip().lower() for u in unanswered)
-                expected = set(str(e).strip().lower() for e in expected_unanswered_raw)
-                checks["unanswered_preserved"] = expected.issubset(answered)
-                if not checks["unanswered_preserved"]:
-                    issues.append("Expected unanswered items not preserved")
 
         # Error check (respect expected_error flag)
         if expected_error is True:
@@ -560,12 +538,11 @@ class CompressionFidelityScorer(Scorer):
             evidence={"case_type": "expected_no_results", "checks": checks,
                      "generated_fact_count": len(facts),
                      "generated_number_count": len(nums),
-                     "unanswered_count": len(unanswered),
                      "compression_error": comp_error},
         )
 
     # ------------------------------------------------------------------
-    # Fact / number / unanswered extraction
+    # Fact / number extraction
     # ------------------------------------------------------------------
 
     @staticmethod
@@ -584,13 +561,6 @@ class CompressionFidelityScorer(Scorer):
                 kf = turn.get("key_findings") or []
             texts = [str(x) for x in (kf or [])]
         return texts
-
-    @staticmethod
-    def _extract_unanswered(turn: Any) -> list[str]:
-        val = getattr(turn, "unanswered", None)
-        if val is None and isinstance(turn, dict):
-            val = turn.get("unanswered") or []
-        return list(val or [])
 
     @staticmethod
     def _extract_compression_error(turn: Any) -> str:

@@ -21,6 +21,7 @@ from harness.models.memory import (
     CoveragePolicy,
     FactLedger,
     MemoryFact,
+    MemoryOperation,
     MergedMemory,
     _normalize_fact_text,
 )
@@ -51,8 +52,6 @@ class WorkingMemory:
         Aggregated risk signals across all turns (DYNAMICALLY derived).
     turns_completed : int
         How many interview turns have been processed.
-    unresolved_questions : list[str]
-        Questions that remain unresolved across all turns.
     coverage_policy : CoveragePolicy
         Single strategy object for all coverage decisions.
     """
@@ -61,7 +60,6 @@ class WorkingMemory:
     facts: list[MemoryFact] = field(default_factory=list)
     fact_sources: dict[str, list[str]] = field(default_factory=dict)
     turns_completed: int = 0
-    unresolved_questions: list[str] = field(default_factory=list)
 
     # Coverage policy — single source of truth
     coverage_policy: CoveragePolicy = field(default_factory=CoveragePolicy)
@@ -114,6 +112,8 @@ class WorkingMemory:
         risk_keywords = [
             "risk", "threat", "regulation", "fine", "penalty", "lawsuit",
             "breach", "vulnerab",
+            "风险", "威胁", "监管", "合规", "罚款", "处罚",
+            "诉讼", "起诉", "违规", "违反", "制裁", "漏洞",
         ]
         flags = []
         for f in self.active_facts:
@@ -165,19 +165,20 @@ class WorkingMemory:
         ledger: FactLedger = self._reconciler.reconcile([new_fact], self.facts)
         self.facts = ledger.all_facts
 
-        # Update source tracking
-        for op in ledger.operations:
-            fid = op.get("fact_id", "")
-            if fid and source_ids:
-                existing_sources = self.fact_sources.get(fid, [])
-                for sid in source_ids:
-                    if sid not in existing_sources:
-                        existing_sources.append(sid)
-                self.fact_sources[fid] = existing_sources
+        op = ledger.operations[-1] if ledger.operations else None
+        resulting_id = self._resulting_fact_id(op, new_fact.fact_id)
 
-        # Return the fact (find it in the ledger)
-        for f in self.active_facts:
-            if f.text == text and f.primary_category == category:
+        # Update source tracking
+        if resulting_id and source_ids:
+            existing_sources = self.fact_sources.get(resulting_id, [])
+            for sid in source_ids:
+                if sid not in existing_sources:
+                    existing_sources.append(sid)
+            self.fact_sources[resulting_id] = existing_sources
+
+        # Return the actual resulting fact by ID — no more guessing by text
+        for f in self.facts:
+            if f.fact_id == resulting_id:
                 return f
         return new_fact
 
@@ -197,14 +198,17 @@ class WorkingMemory:
             ledger: FactLedger = self._reconciler.reconcile(turn.facts, self.facts)
             self.facts = ledger.all_facts
 
-            # Source tracking
-            for fact in turn.facts:
-                if fact.source_ids:
-                    existing = self.fact_sources.get(fact.fact_id, [])
-                    for sid in fact.source_ids:
-                        if sid not in existing:
-                            existing.append(sid)
-                    self.fact_sources[fact.fact_id] = existing
+            # Source tracking — each fact maps 1:1 to the operation reconcile()
+            # logged for it, in the same order, so zip() pairs them correctly.
+            for fact, op in zip(turn.facts, ledger.operations):
+                if not fact.source_ids:
+                    continue
+                resulting_id = self._resulting_fact_id(op, fact.fact_id)
+                existing = self.fact_sources.get(resulting_id, [])
+                for sid in fact.source_ids:
+                    if sid not in existing:
+                        existing.append(sid)
+                self.fact_sources[resulting_id] = existing
 
         elif turn.key_findings:
             # Backward compat: no structured facts, create from key_findings
@@ -220,12 +224,6 @@ class WorkingMemory:
 
         self.turns_completed += 1
 
-        # Track unanswered
-        if turn.unanswered:
-            for q in (turn.unanswered if isinstance(turn.unanswered, list) else [turn.unanswered]):
-                if q and q not in self.unresolved_questions:
-                    self.unresolved_questions.append(q)
-
     def to_merged_memory(self) -> MergedMemory:
         """Generate a read-only MergedMemory snapshot from current state."""
         return MergedMemory.from_working_memory(self, self.coverage_policy)
@@ -240,7 +238,6 @@ class WorkingMemory:
         ALL checks against coverage_policy:
         - Unique active fact counts per category >= required_for_early_stop
         - Independent source count >= min_independent_sources
-        - No unresolved conflicts (when unresolved_conflicts_block_stop is True)
         - Facts below minimum_evidence_quality are NOT counted
         """
         policy = self.coverage_policy
@@ -266,19 +263,7 @@ class WorkingMemory:
             if self.independent_source_count() < policy.min_independent_sources:
                 return False
 
-        # Unresolved conflicts block early stop
-        if policy.unresolved_conflicts_block_stop and self.unresolved_conflicts:
-            return False
-
         return True
-
-    def suggest_next_focus(self) -> str:
-        """Return the most under-covered category name, or empty string."""
-        gaps = self.knowledge_gaps  # dynamic property
-        if not gaps:
-            return ""
-        counts = self._count_active_by_category()
-        return min(gaps, key=lambda c: counts.get(c, 0), default="")
 
     def active_fact_count(self) -> int:
         """Number of unique active facts."""
@@ -324,8 +309,6 @@ class WorkingMemory:
         gaps = self.knowledge_gaps
         if gaps:
             lines.append(f"\nKnowledge gaps remain: {', '.join(gaps)}")
-        if self.unresolved_questions:
-            lines.append(f"\nUnresolved questions: {len(self.unresolved_questions)}")
         conflicts = self.unresolved_conflicts
         if conflicts:
             lines.append(f"\nUnresolved conflicts: {len(conflicts)}")
@@ -345,7 +328,6 @@ class WorkingMemory:
             "facts": [f.to_dict() for f in self.facts],
             "fact_sources": {k: list(v) for k, v in self.fact_sources.items()},
             "turns_completed": self.turns_completed,
-            "unresolved_questions": list(self.unresolved_questions),
             "coverage_policy": self.coverage_policy.to_dict(),
         }
         if self.domain_config is not None:
@@ -367,7 +349,6 @@ class WorkingMemory:
             facts=facts,
             fact_sources={k: list(v) for k, v in (d.get("fact_sources") or {}).items()},
             turns_completed=int(d.get("turns_completed", 0)),
-            unresolved_questions=list(d.get("unresolved_questions") or []),
             coverage_policy=CoveragePolicy.from_dict(policy_dict) if policy_dict else CoveragePolicy(),
             domain_config=domain_config,
         )
@@ -380,6 +361,24 @@ class WorkingMemory:
         if category in VALID_PRIMARY_CATEGORIES:
             return category
         return "other"
+
+    @staticmethod
+    def _resulting_fact_id(op: dict[str, Any] | None, fallback_fact_id: str) -> str:
+        """Resolve which fact_id an incoming fact actually ended up at.
+
+        An operation's own "fact_id" is the resulting fact_id for ADD/
+        UPDATE/CONFLICT, but NOT for NONE (info merged into "matched_id")
+        or INVALIDATE (superseded by "replacement_id") — using "fact_id"
+        blindly for those two would key off an ID that was never actually
+        stored in self.facts.
+        """
+        if op is None:
+            return fallback_fact_id
+        if op.get("operation") == MemoryOperation.NONE.value:
+            return op.get("matched_id", fallback_fact_id)
+        if op.get("operation") == MemoryOperation.INVALIDATE.value:
+            return op.get("replacement_id", fallback_fact_id)
+        return op.get("fact_id", fallback_fact_id)
 
     def _count_active_by_category(self) -> dict[str, int]:
         """Count unique active facts per primary category.

@@ -59,7 +59,6 @@ class TestCompressedTurnRoundtrip:
             question_intent="Understand Tesla Q3 financial performance",
             facts=[fact],
             numbers_mentioned=[{"value": "25.18", "unit": "billion_usd", "context": "revenue"}],
-            unanswered=["What about Q4 guidance?"],
         )
         d = turn.to_dict()
         restored = CompressedTurn.from_dict(d)
@@ -68,7 +67,6 @@ class TestCompressedTurnRoundtrip:
         assert len(restored.facts) == 1
         assert restored.facts[0].text == "Revenue was $25.18B in Q3 2025"
         assert restored.facts[0].source_ids == ["S1"]
-        assert restored.unanswered == ["What about Q4 guidance?"]
         assert restored.numbers_mentioned == [{"value": "25.18", "unit": "billion_usd", "context": "revenue"}]
 
     def test_empty_turn(self):

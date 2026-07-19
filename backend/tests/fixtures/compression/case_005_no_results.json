@@ -9,7 +9,6 @@
   "labeled_facts": [],
   "labeled_numbers": [],
   "expected_evidence_quality": "low",
-  "expected_unanswered": ["No information found for this company"],
   "expected_no_results": true,
   "allowed_fact_count": 0,
   "expected_error": false

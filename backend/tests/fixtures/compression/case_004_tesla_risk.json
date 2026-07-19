@@ -20,6 +20,5 @@
     {"value": "2.4", "unit": "million_vehicles", "context": "NHTSA investigation scope"},
     {"value": "2024", "unit": "year", "context": "BYD surpassed Tesla"}
   ],
-  "expected_evidence_quality": "medium",
-  "expected_unanswered": ["Impact quantification of each risk factor on Tesla's financials"]
+  "expected_evidence_quality": "medium"
 }

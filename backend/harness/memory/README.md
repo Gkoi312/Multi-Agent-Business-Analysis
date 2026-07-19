@@ -75,8 +75,7 @@ backend/
 │   │   ├── running_summary.py     # RunningSummaryManager
 │   │   ├── history_compactor.py   # HistoryCompactor
 │   │   ├── context_assembler.py   # ContextAssembler
-│   │   ├── fact_reconciler.py     # FactReconciler (SPDV matching)
-│   │   └── search_digest.py       # SearchDigestBuilder (SourceRecord)
+│   │   └── fact_reconciler.py     # FactReconciler (SPDV matching)
 │   └── models/
 │       ├── __init__.py
 │       └── memory.py              # Dataclass + 辅助函数
@@ -172,17 +171,9 @@ backend/
 - **Round 3**: 真正接入 Interview Graph — 所有 LLM 节点统一走 `_assemble_llm_messages()`
 - system prompt 使用自己的 token budget
 - 超大单条消息截断
-- search digest、long-term facts、working memory、execution_summary 全部参与缩减
+- long-term facts、working memory、execution_summary 全部参与缩减
 - shrink 后重新计算并验证
 - 不删除当前用户消息（min_current_turn 预算）
-
-### search_digest.py — 搜索结果轻量化
-
-- `SourceRecord` 保存 source_id → URL/标题/检索时间
-- 模型只看到 source ID；引用阶段代码映射 URL
-- **Round 3**: 真正的 token 预算执行 — 逐项添加（query → IDs → snippets → claims）
-- **Round 3**: `tokens_after` = 实际序列化 payload 的 token count + 格式开销
-- **Round 3**: 保证 `tokens_after <= max_tokens`
 
 ### running_summary.py — 增量摘要游标
 

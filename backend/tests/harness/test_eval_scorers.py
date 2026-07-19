@@ -7,7 +7,6 @@ Covers all fix requirements:
 - Full text number extraction from facts.text/key_findings/question_intent
 - Multi-number sentence extraction
 - Currency mismatch strict rejection
-- No-result fixture boolean unanswered handling
 - Pipeline fake trace with explicit drop stage
 - Missing doc detection, eval_errors→fail
 - Malformed citation detection
@@ -344,32 +343,13 @@ class TestCompressionValidation:
 
 
 class TestCompressionNoResult:
-    def test_boolean_unanswered(self):
-        """expected_unanswered: true → need at least one unanswered item."""
-        scorer = CompressionFidelityScorer()
-        fixture = {"labeled_facts": [], "labeled_numbers": [],
-                    "expected_no_results": True, "expected_unanswered": True}
-        # Turn with unanswered
-        turn = {"facts": [], "numbers_mentioned": [], "unanswered": ["No data found"]}
-        result = scorer.score(compressed_turn=turn, fixture=fixture)
-        assert result.status == "pass"
-        assert result.evidence["checks"]["has_unanswered"] is True
-
-    def test_boolean_unanswered_fails_when_empty(self):
-        scorer = CompressionFidelityScorer()
-        fixture = {"labeled_facts": [], "labeled_numbers": [],
-                    "expected_no_results": True, "expected_unanswered": True}
-        turn = {"facts": [], "numbers_mentioned": [], "unanswered": []}
-        result = scorer.score(compressed_turn=turn, fixture=fixture)
-        assert result.status == "fail"
-
     def test_allowed_fact_count(self):
         """allowed_fact_count: 2 means up to 2 facts are OK."""
         scorer = CompressionFidelityScorer()
         fixture = {"labeled_facts": [], "labeled_numbers": [],
                     "expected_no_results": True, "allowed_fact_count": 2}
         turn = {"facts": [{"text": "minor note about the company"}, {"text": "minor observation"}],
-                "numbers_mentioned": [], "unanswered": ["No main data"]}
+                "numbers_mentioned": []}
         result = scorer.score(compressed_turn=turn, fixture=fixture)
         assert result.status == "pass", f"Expected pass, got {result.status}: {result.issues}"
 
@@ -421,37 +401,6 @@ class TestCompressionNoResultFieldExistence:
             f"allowed_fact_count=2 should trigger no-result scoring, got {result.status}"
         )
         assert result.evidence.get("case_type") == "expected_no_results"
-
-    def test_expected_unanswered_false_is_evaluated(self):
-        """expected_unanswered: False triggers no-result path and is evaluated."""
-        scorer = CompressionFidelityScorer()
-        fixture = {
-            "labeled_facts": [],
-            "labeled_numbers": [],
-            "expected_unanswered": False,
-        }
-        # Turn has no unanswered — should pass
-        turn = {"facts": [], "numbers_mentioned": [], "unanswered": []}
-        result = scorer.score(compressed_turn=turn, fixture=fixture)
-        assert result.status != "skipped", (
-            f"expected_unanswered=False should trigger no-result scoring, got {result.status}"
-        )
-        assert result.status == "pass", f"Expected pass, got {result.status}: {result.issues}"
-
-    def test_expected_unanswered_false_fails_when_unanswered_present(self):
-        """expected_unanswered: False → fail if unanswered items exist."""
-        scorer = CompressionFidelityScorer()
-        fixture = {
-            "labeled_facts": [],
-            "labeled_numbers": [],
-            "expected_unanswered": False,
-        }
-        turn = {"facts": [], "numbers_mentioned": [], "unanswered": ["unexpected gap"]}
-        result = scorer.score(compressed_turn=turn, fixture=fixture)
-        assert result.status == "fail", (
-            f"Expected fail when unanswered present but expected_unanswered=False, got {result.status}"
-        )
-
 
 class TestCompressionBasics:
     def test_heuristic_perfect_match(self):

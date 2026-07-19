@@ -224,10 +224,6 @@ class InterviewGraphBuilder:
                 system_parts.append(f"\n## Current Knowledge\n{result.working_memory}")
             if result.execution_summary:
                 system_parts.append(f"\n## Conversation Summary\n{result.execution_summary}")
-            if result.current_search_digest:
-                system_parts.append(f"\n## Search Results\n{result.current_search_digest}")
-            if result.retrieved_long_term_facts:
-                system_parts.append(f"\n## Background\n{result.retrieved_long_term_facts}")
 
             assembled.append(SystemMessage(content="\n".join(system_parts)))
 

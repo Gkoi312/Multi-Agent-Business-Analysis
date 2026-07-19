@@ -108,18 +108,12 @@ class AutonomousReportGenerator:
     def _fallback_domain_memory() -> list[dict[str, Any]]:
         return [
             {
-                "memory_id": "dd-framework-1",
-                "category": "procedure_memory",
                 "title": "Due diligence core framework",
                 "content": "Cover business model, scale/growth, risk, and final recommendations; tie conclusions to evidence.",
-                "tags": ["due_diligence", "framework"],
             },
             {
-                "memory_id": "risk-rubric-1",
-                "category": "reference_memory",
                 "title": "Risk severity rubric",
                 "content": "Classify risks High/Medium/Low using impact scope, likelihood, and reversibility.",
-                "tags": ["risk", "rubric"],
             },
         ]
 

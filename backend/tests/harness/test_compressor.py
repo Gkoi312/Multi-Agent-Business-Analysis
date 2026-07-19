@@ -35,7 +35,6 @@ def mock_llm():
         '   "confidence": 0.85, "source_ids": ["S2"]}'
         '],'
         '"numbers_mentioned": [{"value": "60", "unit": "%", "context": "API share"}],'
-        '"unanswered": [],'
         '"source_registry": {'
         '  "S1": {"url": "https://example.com/1", "title": "Example 1"},'
         '  "S2": {"url": "https://example.com/2", "title": "Example 2"}'
@@ -235,8 +234,6 @@ class TestContextAssembler:
             research_summary=500,
             working_memory=300,
             recent_messages=1000,
-            search_digest=500,
-            long_term_facts=300,
         )
         assembler = ContextAssembler(token_budget=budget)
         messages = [HumanMessage(content="Test message")]
@@ -252,7 +249,6 @@ class TestContextAssembler:
                 ),
             ],
             working_memory_str="Research so far: 3 facts.",
-            search_digest_str="[Search results]",
         )
 
         assert result.total_tokens > 0
@@ -280,8 +276,6 @@ class TestContextAssembler:
             research_summary=200,
             working_memory=200,
             recent_messages=500,
-            search_digest=200,
-            long_term_facts=200,
         )
         assembler = ContextAssembler(token_budget=budget)
         messages = [HumanMessage(content="short msg")]

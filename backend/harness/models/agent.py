@@ -41,11 +41,8 @@ class Perspectives(BaseModel):
 # ---------------------------------------------------------------------------
 
 class DomainMemoryEntry(BaseModel):
-    memory_id: str = Field(description="Domain memory entry ID.")
-    category: str = Field(description="Memory category.")
     title: str = Field(description="Memory title.")
     content: str = Field(description="Memory body text.")
-    tags: list[str] = Field(default_factory=list)
 
 
 class CoverageGoal(BaseModel):

@@ -171,7 +171,7 @@ class TestContextAssemblerBudget:
 
         budget = TokenBudget(
             system_prompt=500, research_summary=500, working_memory=500,
-            recent_messages=1000, search_digest=500, long_term_facts=500,
+            recent_messages=1000,
         )
         assembler = ContextAssembler(token_budget=budget)
         result = assembler.assemble(
@@ -188,7 +188,7 @@ class TestContextAssemblerBudget:
         # safe_limit = (200-50)*0.6 = 90
         budget = TokenBudget(
             system_prompt=50, research_summary=20, working_memory=20,
-            recent_messages=80, search_digest=20, long_term_facts=20,
+            recent_messages=80,
         )
         assembler = ContextAssembler(token_budget=budget, window_mgr=cwm)
 
@@ -286,7 +286,6 @@ class TestCompressedTurnFacts:
             question_intent="How much revenue?",
             facts=facts,
             numbers_mentioned=[{"value": "1.6", "unit": "billion USD", "context": "annual revenue"}],
-            unanswered=["Profit data not available"],
         )
         d = turn.to_dict()
         turn2 = CompressedTurn.from_dict(d)
@@ -347,32 +346,6 @@ class TestCoveragePolicy:
         wm = WorkingMemory(coverage_policy=policy)
         wm.add_fact("Growth fact", category="growth", evidence_quality="low", source_ids=["S1"])
         # Not sufficient — low quality doesn't count
-        assert not wm.has_sufficient_coverage()
-
-    def test_unresolved_conflict_blocks_stop(self):
-        """Unresolved conflicts prevent early stop when policy says so."""
-        policy = CoveragePolicy(
-            required_for_early_stop={"growth": 1, "risk": 1},
-            unresolved_conflicts_block_stop=True,
-            min_independent_sources=1,
-        )
-        wm = WorkingMemory(coverage_policy=policy)
-        wm.add_fact("Growth fact", category="growth", source_ids=["S1"], evidence_quality="high")
-        wm.add_fact("Risk fact different", category="risk", source_ids=["S1"], evidence_quality="high")
-
-        # Manually simulate conflict
-        conflict_fact = MemoryFact(
-            text="Contradictory growth data",
-            primary_category="growth",
-            evidence_quality="high",
-            source_ids=["S2"],
-            conflicts_with=[wm.facts[0].fact_id],
-            status="active",
-        )
-        wm.facts[0].conflicts_with = [conflict_fact.fact_id]
-        wm.facts.append(conflict_fact)
-
-        assert len(wm.unresolved_conflicts) > 0
         assert not wm.has_sufficient_coverage()
 
     def test_coverage_policy_round_trip(self):
@@ -771,7 +744,6 @@ class TestMergedMemorySufficientCoverage:
             required_for_full_report={"growth": 5},
             required_for_early_stop={"growth": 1},
             min_independent_sources=1,
-            unresolved_conflicts_block_stop=False,
         )
         mm = MergedMemory(
             total_facts=1,

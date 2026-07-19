@@ -114,7 +114,6 @@ def run_compression_evals(compressor: Any, llm: Any, judge_llm: Any = None, repe
                 compressed_output = {"question_intent": getattr(compressed, "question_intent", ""),
                     "fact_count": len(getattr(compressed, "facts", []) or []),
                     "numbers_count": len(getattr(compressed, "numbers_mentioned", []) or []),
-                    "unanswered": getattr(compressed, "unanswered", []) or [],
                     "compression_error": getattr(compressed, "compression_error", "") or ""}
             except Exception: compressed_output = {"error": "Could not serialize"}
             all_runs.append({"run_id": run_id, "case_id": case_id,

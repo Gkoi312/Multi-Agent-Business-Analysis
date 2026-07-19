@@ -255,7 +255,7 @@ def make_compact_history_node(compressor: IncrementalCompressor) -> Callable[[di
                 }
 
             logger.info("Compacting conversation history (turn %s)", turn_count)
-            projected, updated_rs = compressor.compact_history(
+            _, updated_rs = compressor.compact_history(
                 messages, running_summary=running_summary,
             )
 

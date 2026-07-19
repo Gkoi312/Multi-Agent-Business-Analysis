@@ -158,7 +158,6 @@ class TestCompressedTurn:
             key_findings=["API and ChatGPT subscriptions", "Enterprise licensing"],
             evidence_quality="high",
             sources_cited=["https://example.com/1"],
-            unanswered="",
         )
         d = ct.to_dict()
         ct2 = CompressedTurn.from_dict(d)
@@ -238,23 +237,14 @@ class TestMergedMemory:
             coverage={"business_model": 3, "growth": 3, "risk": 3, "competition": 2, "financials": 2},
             independent_source_count=3,
         )
-        policy = CoveragePolicy(min_independent_sources=2, unresolved_conflicts_block_stop=False)
+        policy = CoveragePolicy(min_independent_sources=2)
         assert mm.has_sufficient_coverage(policy)
 
     def test_insufficient_coverage_when_gaps(self):
         mm = MergedMemory(
             coverage={"business_model": 1, "growth": 1, "risk": 1, "competition": 0, "financials": 0},
         )
-        policy = CoveragePolicy(unresolved_conflicts_block_stop=False)
-        assert not mm.has_sufficient_coverage(policy)
-
-    def test_unresolved_conflict_blocks_sufficient(self):
-        mm = MergedMemory(
-            coverage={"business_model": 3, "growth": 3, "risk": 3, "competition": 2, "financials": 2},
-            unresolved_conflicts=["conflict-1"],
-            independent_source_count=2,
-        )
-        policy = CoveragePolicy(min_independent_sources=1)
+        policy = CoveragePolicy()
         assert not mm.has_sufficient_coverage(policy)
 
     def test_to_dict_from_dict_roundtrip(self):
@@ -263,7 +253,6 @@ class TestMergedMemory:
             coverage={"business_model": 2, "growth": 1, "risk": 0, "competition": 1, "financials": 1, "other": 0},
             knowledge_gaps=["risk", "financials"],
             risk_flags=["Some risk"],
-            unresolved_questions=["Q1"],
             unresolved_conflicts=[],
             used_sources={"https://a.com/1"},
             independent_source_count=1,

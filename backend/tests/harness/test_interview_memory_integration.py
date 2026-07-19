@@ -62,7 +62,6 @@ DD_CONFIG = MemoryDomainConfig(
     coverage_policy=CoveragePolicy(
         required_for_early_stop={"growth": 1, "risk": 1},
         min_independent_sources=1,
-        unresolved_conflicts_block_stop=True,
     ),
 )
 
@@ -167,7 +166,6 @@ class TestDuplicateFactsDontIncreaseCoverage:
         wm = WorkingMemory(coverage_policy=CoveragePolicy(
             required_for_early_stop={"growth": 1},
             min_independent_sources=1,
-            unresolved_conflicts_block_stop=False,
         ))
         wm.add_fact("Revenue grew 30% in 2025", category="growth",
                      subject="Revenue", predicate="growth_rate",
@@ -263,7 +261,6 @@ class TestSourceRegistryRoundTrip:
                 "source_ids": ["S1", "S2"],
             }],
             "numbers_mentioned": [],
-            "unanswered": [],
         }
         turn = compressor._parse_compressed_turn(data, registry)
         fact = turn.facts[0]
@@ -287,7 +284,6 @@ class TestSourceRegistryRoundTrip:
                 "evidence_quality": "medium",
             }],
             "numbers_mentioned": [],
-            "unanswered": [],
         }
         turn = compressor._parse_compressed_turn(data, registry)
         fact = turn.facts[0]
@@ -310,7 +306,6 @@ class TestSourceRegistryRoundTrip:
                 "evidence_quality": "medium",
             }],
             "numbers_mentioned": [],
-            "unanswered": [],
         }
         turn = compressor._parse_compressed_turn(data, registry)
         fact = turn.facts[0]
@@ -468,36 +463,6 @@ class TestTrueConflict:
         conflicting_facts = [f for f in ledger.active_facts if f.conflicts_with]
         assert len(conflicting_facts) >= 1
 
-    def test_conflict_blocks_early_stop(self):
-        """Unresolved conflict prevents has_sufficient_coverage."""
-        policy = CoveragePolicy(
-            required_for_early_stop={"growth": 1},
-            min_independent_sources=1,
-            unresolved_conflicts_block_stop=True,
-        )
-        wm = WorkingMemory(coverage_policy=policy)
-        wm.add_fact("Revenue grew 30%", category="growth", source_ids=["S1"], evidence_quality="high",
-                     subject="Revenue", predicate="growth_rate", value=30, period="2025")
-
-        # Inject conflict manually
-        conflict = MemoryFact(
-            text="Revenue decreased 10%",
-            primary_category="growth",
-            evidence_quality="high",
-            source_ids=["S2"],
-            conflicts_with=[wm.facts[0].fact_id],
-            status="active",
-            subject="Revenue",
-            predicate="growth_rate",
-            value=-10,
-            period="2025",
-        )
-        wm.facts[0].conflicts_with = [conflict.fact_id]
-        wm.facts.append(conflict)
-
-        assert len(wm.unresolved_conflicts) > 0
-        assert not wm.has_sufficient_coverage()
-
     def test_equal_quality_conflict_not_invalidated(self):
         """Two high-quality contradictory facts → CONFLICT, not INVALIDATE."""
         reconciler = FactReconciler()
@@ -653,11 +618,10 @@ class TestContextAssemblyNoMutation:
 
 class TestEarlyStopConditions:
     def test_all_conditions_met_allows_stop(self):
-        """Coverage + sources + no conflicts → stop."""
+        """Coverage + sources → stop."""
         policy = CoveragePolicy(
             required_for_early_stop={"growth": 1, "risk": 1},
             min_independent_sources=2,
-            unresolved_conflicts_block_stop=True,
         )
         wm = WorkingMemory(coverage_policy=policy)
         wm.add_fact("Growth fact", category="growth", source_ids=["S1"], evidence_quality="high")
@@ -669,7 +633,6 @@ class TestEarlyStopConditions:
         policy = CoveragePolicy(
             required_for_early_stop={"growth": 1, "risk": 1, "financials": 1},
             min_independent_sources=1,
-            unresolved_conflicts_block_stop=False,
         )
         wm = WorkingMemory(coverage_policy=policy)
         wm.add_fact("Growth fact", category="growth", source_ids=["S1"], evidence_quality="high")
@@ -680,7 +643,6 @@ class TestEarlyStopConditions:
         policy = CoveragePolicy(
             required_for_early_stop={"growth": 1},
             min_independent_sources=3,
-            unresolved_conflicts_block_stop=False,
         )
         wm = WorkingMemory(coverage_policy=policy)
         for i in range(5):
@@ -694,7 +656,6 @@ class TestEarlyStopConditions:
             required_for_early_stop={"growth": 1},
             minimum_evidence_quality="medium",
             min_independent_sources=1,
-            unresolved_conflicts_block_stop=False,
         )
         wm = WorkingMemory(coverage_policy=policy)
         wm.add_fact("Low quality fact", category="growth", source_ids=["S1"], evidence_quality="low")

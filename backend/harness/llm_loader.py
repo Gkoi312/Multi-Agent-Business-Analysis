@@ -20,6 +20,7 @@ class ApiKeyManager:
             "GOOGLE_API_KEY": os.getenv("GOOGLE_API_KEY"),
             "GROQ_API_KEY": os.getenv("GROQ_API_KEY"),
             "DEEPSEEK_API_KEY": os.getenv("DEEPSEEK_API_KEY"),
+            "MOONSHOT_API_KEY": os.getenv("MOONSHOT_API_KEY"),
         }
 
         log.info("Initializing ApiKeyManager")
@@ -115,6 +116,17 @@ class ModelLoader:
                     temperature=temperature,
                     max_tokens=max_tokens,
                     base_url=base_url or "https://api.deepseek.com/v1",
+                )
+
+            elif provider == "kimi":
+                from langchain_openai import ChatOpenAI
+                moonshot_key = self.api_key_mgr.get("MOONSHOT_API_KEY") or self.api_key_mgr.get("OPENAI_API_KEY")
+                llm = ChatOpenAI(
+                    model=model_name,
+                    api_key=moonshot_key,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    base_url=base_url or "https://api.moonshot.cn/v1",
                 )
 
             elif provider == "openai":

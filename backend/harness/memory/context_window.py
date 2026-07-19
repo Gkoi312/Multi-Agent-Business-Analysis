@@ -9,9 +9,13 @@ after assembly.
 """
 from __future__ import annotations
 
+import logging
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # ===========================================================================
 # Known model context window sizes (tokens) — normalized keys
@@ -43,6 +47,11 @@ _MODEL_LIMITS: dict[str, int] = {
     "gemini-2.5-flash": 1_048_576,
     "gemini-2.5-pro": 1_048_576,
     "gemini-2.5-flash-lite": 1_048_576,
+    # Moonshot AI (Kimi)
+    "moonshot-v1-8k": 8_192,
+    "moonshot-v1-32k": 32_768,
+    "moonshot-v1-128k": 131_072,
+    "kimi-k2": 131_072,
 }
 
 
@@ -71,8 +80,10 @@ class ContextWindowManager:
     model_name : str
         Model identifier, e.g. ``"gpt-4o"`` or ``"gpt-4o-2024-11-20"``.
     max_tokens : int | None
-        Explicit override for context window size. Falls back to lookup table,
-        then to 8192.
+        Explicit override for context window size. Falls back to the lookup
+        table, then to the ``LLM_CONTEXT_WINDOW_TOKENS`` env var, then to a
+        conservative 8192 (with a logged warning, since that's almost
+        certainly wrong for any real modern model).
     reserved_tokens : int
         Tokens reserved for model output (default 2000).
     safe_ratio : float
@@ -98,7 +109,27 @@ class ContextWindowManager:
 
         # ---- Resolve max_tokens ----
         if self.max_tokens is None:
-            self.max_tokens = _MODEL_LIMITS.get(self._normalized_model, 8192)
+            self.max_tokens = _MODEL_LIMITS.get(self._normalized_model)
+
+        if self.max_tokens is None:
+            env_override = os.getenv("LLM_CONTEXT_WINDOW_TOKENS")
+            if env_override:
+                try:
+                    self.max_tokens = int(env_override)
+                except ValueError:
+                    logger.warning(
+                        f"LLM_CONTEXT_WINDOW_TOKENS='{env_override}' is not a valid integer; ignoring it."
+                    )
+
+        if self.max_tokens is None:
+            self.max_tokens = 8192
+            logger.warning(
+                f"Model '{self.model_name}' (normalized: '{self._normalized_model}') has no known "
+                f"context window — falling back to a conservative {self.max_tokens} tokens. This "
+                "likely triggers compression far earlier than necessary for a real modern model. "
+                f"Fix: add '{self._normalized_model}' to _MODEL_LIMITS in context_window.py, or set "
+                "the LLM_CONTEXT_WINDOW_TOKENS env var to this model's real context window size."
+            )
 
         # ---- Parameter validation ----
         if self.reserved_tokens >= self.max_tokens:
@@ -244,10 +275,6 @@ class ContextWindowManager:
         """The token count at which we should trigger compression (public)."""
         return int((self.max_tokens - self.reserved_tokens) * self.safe_ratio)
 
-    def _safe_limit(self) -> int:
-        """Deprecated: use ``safe_limit`` property instead."""
-        return self.safe_limit
-
     def should_compress(
         self,
         messages: list[Any],
@@ -260,4 +287,4 @@ class ContextWindowManager:
         total += self.estimate_tokens(working_memory_str)
         total += self.estimate_tokens(compressed_turns_str)
         total += self.estimate_messages(messages)
-        return total > self._safe_limit()
+        return total > self.safe_limit

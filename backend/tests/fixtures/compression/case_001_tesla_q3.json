@@ -26,6 +26,5 @@
     {"value": "52", "unit": "%", "context": "energy storage growth"},
     {"value": "2.37", "unit": "billion_usd", "context": "energy storage revenue"}
   ],
-  "expected_evidence_quality": "high",
-  "expected_unanswered": []
+  "expected_evidence_quality": "high"
 }

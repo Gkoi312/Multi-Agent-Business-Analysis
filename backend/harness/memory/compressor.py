@@ -66,8 +66,7 @@ Return ONLY a JSON object (no markdown fences, no extra text) with these keys:
             "source_ids": ["S1", "S2"]
         }}
     ],
-    "numbers_mentioned": [{{"value": "42", "unit": "%", "context": "market share"}}],
-    "unanswered": ["what this round did NOT resolve"]
+    "numbers_mentioned": [{{"value": "42", "unit": "%", "context": "market share"}}]
 }}
 
 Rules:
@@ -75,7 +74,6 @@ Rules:
 - primary_category: exactly ONE per fact from: {categories}
 - source_ids: ONLY use keys from the source registry above (S1, S2, etc.).
 - DO NOT generate URLs, DO NOT generate new source IDs.
-- unanswered: list specific questions not resolved, or empty array if fully answered.
 - numbers_mentioned: only include if the answer contains explicit numeric data."""
 
 
@@ -211,7 +209,6 @@ class IncrementalCompressor:
                     question_intent=question[:200],
                     key_findings=[answer[:500]] if answer else [],
                     evidence_quality="low",
-                    unanswered=[],
                     compression_error=f"Compression failed after {self.max_retries + 1} attempts: {type(exc).__name__}",
                 )
 
@@ -219,7 +216,6 @@ class IncrementalCompressor:
             question_intent=question[:200],
             key_findings=[answer[:500]] if answer else [],
             evidence_quality="low",
-            unanswered=[],
             compression_error="LLM returned empty JSON after all retries",
         )
 
@@ -398,19 +394,9 @@ class IncrementalCompressor:
             if isinstance(n, dict):
                 numbers.append(n)
 
-        # Parse unanswered
-        unanswered_raw = data.get("unanswered") or []
-        if isinstance(unanswered_raw, list):
-            unanswered = [str(u) for u in unanswered_raw if u]
-        elif isinstance(unanswered_raw, str) and unanswered_raw:
-            unanswered = [str(unanswered_raw)]
-        else:
-            unanswered = []
-
         return CompressedTurn(
             question_intent=str(data.get("question_intent", "") or ""),
             facts=facts,
             numbers_mentioned=numbers,
-            unanswered=unanswered,
             compression_error="",
         )

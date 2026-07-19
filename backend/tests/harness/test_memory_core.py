@@ -282,15 +282,6 @@ class TestWorkingMemory:
         assert wm.turns_completed == 1
         assert wm.active_fact_count() >= 1
 
-    def test_unanswered_questions_tracked(self):
-        wm = WorkingMemory()
-        turn = CompressedTurn(
-            key_findings=["Some fact"],
-            unanswered=["AI strategy impact on revenue not determined"],
-        )
-        wm.ingest_compressed_turn(turn)
-        assert len(wm.unresolved_questions) >= 1
-
     def test_has_sufficient_coverage_with_enough_facts(self):
         wm = WorkingMemory()
         policy = wm.coverage_policy
@@ -307,26 +298,6 @@ class TestWorkingMemory:
         wm = WorkingMemory()
         wm.add_fact("Barely a fact", category="growth", evidence_quality="low")
         wm.add_fact("Another weak fact", category="growth", evidence_quality="low")
-        assert not wm.has_sufficient_coverage()
-
-    def test_unresolved_conflict_prevents_early_stop(self):
-        wm = WorkingMemory()
-        policy = wm.coverage_policy
-        for cat, count in policy.required_for_early_stop.items():
-            for i in range(count):
-                wm.add_fact(
-                    f"Fact about {cat} #{i}", category=cat,
-                    source_ids=[f"src-{cat}-{i}"], evidence_quality="high",
-                )
-        # Add conflict
-        f = wm.active_facts[0]
-        conflict = MemoryFact(
-            text="Contradiction", primary_category=f.primary_category,
-            evidence_quality="high", source_ids=["src-x"],
-            conflicts_with=[f.fact_id], status="active",
-        )
-        f.conflicts_with = [conflict.fact_id]
-        wm.facts.append(conflict)
         assert not wm.has_sufficient_coverage()
 
     def test_chinese_facts_ingested(self):
@@ -363,12 +334,3 @@ class TestWorkingMemory:
         wm2 = WorkingMemory.from_dict(d)
         assert wm2.turns_completed == 2
         assert wm2.active_fact_count() == wm.active_fact_count()
-
-    def test_suggest_next_focus(self):
-        wm = WorkingMemory()
-        for i in range(3):
-            wm.add_fact(f"Growth fact {i}", category="growth", source_ids=[f"sg-{i}"], evidence_quality="high")
-        wm.add_fact("Lonely financial fact", category="financials", source_ids=["sf-1"], evidence_quality="high")
-        focus = wm.suggest_next_focus()
-        gaps = list(wm.knowledge_gaps)
-        assert focus in gaps if gaps else True

@@ -24,6 +24,5 @@
     {"value": "300", "unit": "billion_cny", "context": "Douyin e-commerce GMV"},
     {"value": "2025", "unit": "year", "context": "divestiture deadline"}
   ],
-  "expected_evidence_quality": "high",
-  "expected_unanswered": []
+  "expected_evidence_quality": "high"
 }

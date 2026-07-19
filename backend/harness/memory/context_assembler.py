@@ -70,13 +70,7 @@ class ContextAssembler:
         system_prompt: str = "",
         compressed_turns: list[CompressedTurn] | None = None,
         working_memory_str: str = "",
-        search_digest_str: str = "",
-        long_term_facts_str: str = "",
-        domain_memory_str: str = "",
-        skill_card_str: str = "",
-        assigned_plan_str: str = "",
         execution_summary: str = "",
-        running_summary: str = "",
     ) -> ContextAssemblyResult:
         """Build the full context payload for an LLM call.
 
@@ -93,20 +87,8 @@ class ContextAssembler:
             Accumulated compressed turn history.
         working_memory_str : str
             Formatted working memory content.
-        search_digest_str : str
-            Current search results digest.
-        long_term_facts_str : str
-            Retrieved long-term fact content.
-        domain_memory_str : str
-            Domain-specific knowledge / frameworks.
-        skill_card_str : str
-            Skill card content.
-        assigned_plan_str : str
-            Assigned research plan content.
         execution_summary : str
             Execution/history compaction summary.
-        running_summary : str
-            Running summary text.
 
         Returns
         -------
@@ -119,14 +101,10 @@ class ContextAssembler:
         """
         safe_limit = self.window_mgr.safe_limit
 
-        # 1. Build the enriched system prompt
-        enriched_sp = self._build_system_prompt(
-            base=system_prompt,
-            domain_memory=domain_memory_str,
-            skill_card=skill_card_str,
-            assigned_plan=assigned_plan_str,
-        )
-        enriched_sp = self._truncate_to_budget(enriched_sp, self.budget.system_prompt)
+        # 1. System prompt (already fully rendered by the caller — e.g. the
+        # domain layer's Jinja templates embed domain memory / skill card /
+        # assigned plan directly — so there's nothing to enrich here)
+        enriched_sp = self._truncate_to_budget(system_prompt, self.budget.system_prompt)
 
         # 2. Build research summary from compressed turns
         research_summary = self._build_research_summary(
@@ -143,15 +121,8 @@ class ContextAssembler:
             budget=self.budget.recent_messages,
         )
 
-        # 5. Search digest
-        sd = self._truncate_to_budget(search_digest_str, self.budget.search_digest)
-
-        # 6. Long-term facts
-        ltf = self._truncate_to_budget(long_term_facts_str, self.budget.long_term_facts)
-
         # 7. Execution/running summary
-        exec_summary = execution_summary or running_summary
-        exec_summary = self._truncate_to_budget(exec_summary, self.budget.execution_summary)
+        exec_summary = self._truncate_to_budget(execution_summary, self.budget.execution_summary)
 
         # 8. Compute total tokens and validate
         breakdown = {
@@ -159,16 +130,14 @@ class ContextAssembler:
             "research_summary": self.window_mgr.estimate_tokens(research_summary),
             "working_memory": self.window_mgr.estimate_tokens(wm),
             "recent_messages": self.window_mgr.estimate_messages(recent),
-            "search_digest": self.window_mgr.estimate_tokens(sd),
-            "long_term_facts": self.window_mgr.estimate_tokens(ltf),
             "execution_summary": self.window_mgr.estimate_tokens(exec_summary),
         }
         total = sum(breakdown.values())
 
         # 9. Shrink by priority if over budget
         if total > safe_limit:
-            recent, sd, ltf, wm, exec_summary, research_summary = self._shrink_by_priority(
-                recent, sd, ltf, wm, exec_summary, research_summary,
+            recent, wm, exec_summary, research_summary = self._shrink_by_priority(
+                recent, wm, exec_summary, research_summary,
                 total, safe_limit,
             )
             # Recompute
@@ -177,8 +146,6 @@ class ContextAssembler:
                 "research_summary": self.window_mgr.estimate_tokens(research_summary),
                 "working_memory": self.window_mgr.estimate_tokens(wm),
                 "recent_messages": self.window_mgr.estimate_messages(recent),
-                "search_digest": self.window_mgr.estimate_tokens(sd),
-                "long_term_facts": self.window_mgr.estimate_tokens(ltf),
                 "execution_summary": self.window_mgr.estimate_tokens(exec_summary),
             }
             total = sum(breakdown.values())
@@ -193,8 +160,6 @@ class ContextAssembler:
             research_summary=research_summary,
             working_memory=wm,
             recent_raw_messages=recent,
-            current_search_digest=sd,
-            retrieved_long_term_facts=ltf,
             total_tokens=total,
             token_breakdown=breakdown,
         )
@@ -202,23 +167,6 @@ class ContextAssembler:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-
-    def _build_system_prompt(
-        self,
-        base: str,
-        domain_memory: str = "",
-        skill_card: str = "",
-        assigned_plan: str = "",
-    ) -> str:
-        """Enrich the base system prompt with domain/skill/plan context."""
-        parts = [base]
-        if domain_memory:
-            parts.append(f"\n## Domain Knowledge\n{domain_memory}")
-        if skill_card:
-            parts.append(f"\n## Skill Card\n{skill_card}")
-        if assigned_plan:
-            parts.append(f"\n## Research Plan\n{assigned_plan}")
-        return "\n".join(parts)
 
     def _build_research_summary(
         self,
@@ -277,8 +225,11 @@ class ContextAssembler:
             str(getattr(last_msg, "content", str(last_msg)))
         ) + 4
 
-        # Reserve at least min_current_turn for it
-        effective_max = max(max_tokens - max(last_tokens, min_reserve), last_tokens)
+        # Reserve at least min_current_turn for it. Floor at 0, not last_tokens —
+        # if the last message alone already exceeds max_tokens, there is no
+        # budget left for older messages (flooring at last_tokens would instead
+        # balloon their allowance to match the oversized last message).
+        effective_max = max(max_tokens - max(last_tokens, min_reserve), 0)
 
         for msg in reversed(messages[:-1]):
             content = str(getattr(msg, "content", str(msg)))
@@ -290,8 +241,11 @@ class ContextAssembler:
                     if isinstance(tc, dict):
                         tokens += self.window_mgr.estimate_tokens(str(tc.get("args", "") or ""))
 
-            if total + tokens > effective_max and selected:
-                break
+            # Skip (don't stop) on a message that doesn't fit — an oversized
+            # message shouldn't disqualify older, possibly shorter messages
+            # from being considered too.
+            if total + tokens > effective_max:
+                continue
             selected.insert(0, msg)
             total += tokens
 
@@ -325,65 +279,47 @@ class ContextAssembler:
     def _shrink_by_priority(
         self,
         recent: list[Any],
-        sd: str,
-        ltf: str,
         wm: str,
         exec_summary: str,
         research_summary: str,
         current_total: int,
         target: int,
-    ) -> tuple[list[Any], str, str, str, str, str]:
+    ) -> tuple[list[Any], str, str, str]:
         """Shrink context segments by priority to fit within budget.
 
         Priority removal order (least important first):
-        1. Long-term facts
-        2. Search digest
-        3. Working memory display
-        4. Execution summary
-        5. Research summary
-        6. Old messages in recent list
-        7. Last resort: truncate oversized recent messages (but never delete last)
+        1. Working memory display
+        2. Execution summary
+        3. Research summary
+        4. Old messages in recent list
+        5. Last resort: truncate oversized recent messages (but never delete last)
         """
         over = current_total - target
         if over <= 0:
-            return recent, sd, ltf, wm, exec_summary, research_summary
+            return recent, wm, exec_summary, research_summary
 
-        # 1. Truncate long-term facts
-        if ltf and over > 0:
-            before = self.window_mgr.estimate_tokens(ltf)
-            ltf = self._truncate_to_budget(ltf, max(0, before - over))
-            after = self.window_mgr.estimate_tokens(ltf)
-            over -= (before - after)
-
-        # 2. Truncate search digest
-        if sd and over > 0:
-            before = self.window_mgr.estimate_tokens(sd)
-            sd = self._truncate_to_budget(sd, max(0, before - over))
-            after = self.window_mgr.estimate_tokens(sd)
-            over -= (before - after)
-
-        # 3. Truncate working memory
+        # 1. Truncate working memory
         if wm and over > 0:
             before = self.window_mgr.estimate_tokens(wm)
             wm = self._truncate_to_budget(wm, max(0, before - over))
             after = self.window_mgr.estimate_tokens(wm)
             over -= (before - after)
 
-        # 4. Truncate execution summary
+        # 2. Truncate execution summary
         if exec_summary and over > 0:
             before = self.window_mgr.estimate_tokens(exec_summary)
             exec_summary = self._truncate_to_budget(exec_summary, max(0, before - over))
             after = self.window_mgr.estimate_tokens(exec_summary)
             over -= (before - after)
 
-        # 5. Truncate research summary
+        # 3. Truncate research summary
         if research_summary and over > 0:
             before = self.window_mgr.estimate_tokens(research_summary)
             research_summary = self._truncate_to_budget(research_summary, max(0, before - over))
             after = self.window_mgr.estimate_tokens(research_summary)
             over -= (before - after)
 
-        # 6. Drop oldest messages (except the last one — current user input)
+        # 4. Drop oldest messages (except the last one — current user input)
         if recent and len(recent) > 1 and over > 0:
             while len(recent) > 1 and over > 0:
                 dropped = recent.pop(0)
@@ -398,7 +334,7 @@ class ContextAssembler:
                             )
                 over -= dropped_tokens
 
-        return recent, sd, ltf, wm, exec_summary, research_summary
+        return recent, wm, exec_summary, research_summary
 
     @staticmethod
     def _truncate_to_budget(text: str, max_tokens: int) -> str:
