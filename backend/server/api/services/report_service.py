@@ -37,8 +37,15 @@ def _create_checkpointer():
 _shared_checkpointer = _create_checkpointer()
 
 
-def _feed_metrics(task_id: str, state_values: dict[str, Any]) -> None:
-    """Extract llm_metrics from graph state and feed into MetricsCollector + NodeTracer."""
+def _feed_metrics(task_id: str, state_values: dict[str, Any], _seen_hashes: set | None = None) -> None:
+    """Extract llm_metrics from graph state and feed into MetricsCollector + NodeTracer.
+
+    Uses content hashing to deduplicate entries across multiple calls
+    (start_report_generation → submit_feedback → get_report_status).
+    Pass the same ``_seen_hashes`` set across all calls for a given task_id.
+    """
+    import hashlib
+
     from harness.observability.metrics import get_ledger
     from harness.observability.tracer import get_tracer
 
@@ -52,12 +59,22 @@ def _feed_metrics(task_id: str, state_values: dict[str, Any]) -> None:
     for m in llm_metrics:
         if not isinstance(m, dict):
             continue
+
         node = str(m.get("node", "") or "unknown")
         model = str(m.get("model", ""))
         prompt_tokens = int(m.get("prompt_tokens", 0) or 0)
         completion_tokens = int(m.get("completion_tokens", 0) or 0)
         total_tokens = int(m.get("total_tokens", 0) or 0) or (prompt_tokens + completion_tokens)
         latency_ms = int(m.get("latency_ms", 0) or 0)
+
+        # Deduplicate: hash on (node, prompt_tokens, completion_tokens, latency_ms)
+        _hash = hashlib.md5(
+            f"{node}:{prompt_tokens}:{completion_tokens}:{latency_ms}".encode()
+        ).hexdigest()
+        if _seen_hashes is not None:
+            if _hash in _seen_hashes:
+                continue
+            _seen_hashes.add(_hash)
 
         # Feed MetricsCollector (cost/token tracking)
         ledger.record(
@@ -86,6 +103,9 @@ class ReportService:
         self.reporter.memory = _shared_checkpointer
         self.graph = self.reporter.build_graph()
         self.logger = GLOBAL_LOGGER.bind(module="ReportService")
+        # Per-task dedup sets for _feed_metrics (prevents double-counting across
+        # start_report_generation → submit_feedback → get_report_status calls)
+        self._metrics_seen: dict[str, set] = {}
 
     @staticmethod
     def _extract_risk_counts(final_report: str) -> dict[str, int]:
@@ -185,7 +205,10 @@ class ReportService:
 
             overall_started = time.perf_counter()
 
-            for _ in self.graph.stream(
+            # Use a shared dedup set across all _feed_metrics calls for this task
+            _metrics_seen: set = self._metrics_seen.setdefault(task_id, set()) if task_id else set()
+
+            for chunk in self.graph.stream(
                 {
                     "research_query": research_query,
                     "company_name": company_name,
@@ -209,15 +232,17 @@ class ReportService:
                 thread,
                 stream_mode="values",
             ):
-                pass
+                # Feed metrics incrementally so subgraph nodes are captured
+                if task_id and isinstance(chunk, dict):
+                    _feed_metrics(task_id, chunk, _metrics_seen)
 
             overall_elapsed_ms = int((time.perf_counter() - overall_started) * 1000)
             state = self.graph.get_state(thread)
             analysts_preview = self._extract_analysts_preview(state.values)
 
-            # Feed metrics from final state into the harness ledger/tracer
+            # Final pass to catch anything emitted after last chunk
             if task_id:
-                _feed_metrics(task_id, state.values)
+                _feed_metrics(task_id, state.values, _metrics_seen)
                 # Record overall execution as a tracer entry
                 from harness.observability.tracer import get_tracer
                 tracer = get_tracer(task_id)
@@ -240,17 +265,21 @@ class ReportService:
             self.graph.update_state(thread, {"human_analyst_feedback": feedback}, as_node="human_feedback")
             self.logger.info("Feedback updated", thread_id=thread_id)
             overall_started = time.perf_counter()
-            for _ in self.graph.stream(None, thread, stream_mode="values"):
-                pass
+
+            _metrics_seen: set = self._metrics_seen.setdefault(task_id, set()) if task_id else set()
+            for chunk in self.graph.stream(None, thread, stream_mode="values"):
+                if task_id and isinstance(chunk, dict):
+                    _feed_metrics(task_id, chunk, _metrics_seen)
+
             overall_elapsed_ms = int((time.perf_counter() - overall_started) * 1000)
             state = self.graph.get_state(thread)
             pending_nodes = list(getattr(state, "next", []) or [])
             analysts_preview = self._extract_analysts_preview(state.values)
             awaiting_feedback = "human_feedback" in pending_nodes
 
-            # Feed metrics
+            # Final pass + tracer summary
             if task_id:
-                _feed_metrics(task_id, state.values)
+                _feed_metrics(task_id, state.values, _metrics_seen)
                 from harness.observability.tracer import get_tracer
                 tracer = get_tracer(task_id)
                 with tracer.trace("_total_feedback") as span:
@@ -289,7 +318,8 @@ class ReportService:
 
                 # Feed metrics one final time (includes write_report, review, finalize nodes)
                 if task_id:
-                    _feed_metrics(task_id, state.values)
+                    _seen = self._metrics_seen.setdefault(task_id, set())
+                    _feed_metrics(task_id, state.values, _seen)
 
                 return {
                     "status": "completed",

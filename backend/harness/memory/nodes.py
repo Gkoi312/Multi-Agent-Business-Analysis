@@ -122,8 +122,10 @@ def make_compress_node(compressor: IncrementalCompressor) -> Callable[[dict], di
     falling back to ``state["source_registry"]``). Appends the result to
     ``state["compressed_turns"]``.
     """
+    import time as _time
 
     def _compress(state: dict[str, Any]) -> dict:
+        _t0 = _time.perf_counter()
         try:
             question, answer = IncrementalCompressor.extract_last_question_and_answer(
                 state["messages"]
@@ -146,26 +148,65 @@ def make_compress_node(compressor: IncrementalCompressor) -> Callable[[dict], di
             compressed_history.append(compressed.to_dict())
 
             fact_count = len(compressed.facts) if compressed.facts else len(compressed.key_findings)
+            latency_ms = int((_time.perf_counter() - _t0) * 1000)
             logger.info(
-                "Turn %s compressed: %s facts, quality=%s",
-                turn_count, fact_count, compressed.evidence_quality,
+                "Turn %s compressed: %s facts, quality=%s, latency_ms=%s",
+                turn_count, fact_count, compressed.evidence_quality, latency_ms,
             )
+
+            # Estimate token savings: answer tokens before vs fact tokens after
+            answer_tokens = compressor.window_manager.estimate_tokens(answer) if answer else 0
+            facts_text = " ".join(
+                (f.text if hasattr(f, "text") else str(f))
+                for f in (compressed.facts or [])
+            )
+            compressed_tokens = compressor.window_manager.estimate_tokens(facts_text)
 
             return {
                 "compressed_turns": compressed_history,
                 "workflow_events": [
                     {
                         "event": "compress.completed",
-                        "payload": {"turn": turn_count, "facts_extracted": fact_count},
+                        "payload": {
+                            "turn": turn_count,
+                            "facts_extracted": fact_count,
+                            "answer_tokens_before": answer_tokens,
+                            "compressed_tokens_after": compressed_tokens,
+                            "compression_ratio": round(compressed_tokens / answer_tokens, 3) if answer_tokens else 0,
+                            "latency_ms": latency_ms,
+                        },
+                    }
+                ],
+                # Emit as llm_metrics so _feed_metrics picks it up in the tracer
+                "llm_metrics": [
+                    {
+                        "node": "interview.compress",
+                        "latency_ms": latency_ms,
+                        "prompt_tokens": answer_tokens,      # "input" to compressor
+                        "completion_tokens": compressed_tokens,  # "output" compressed size
+                        "total_tokens": answer_tokens + compressed_tokens,
+                        "compression_ratio": round(compressed_tokens / answer_tokens, 3) if answer_tokens else 0,
+                        "facts_extracted": fact_count,
                     }
                 ],
             }
 
         except Exception as e:
+            latency_ms = int((_time.perf_counter() - _t0) * 1000)
             logger.error("Error compressing turn: %s", e)
             return {
                 "workflow_events": [
                     {"event": "compress.failed", "payload": {"error": str(e)}}
+                ],
+                "llm_metrics": [
+                    {
+                        "node": "interview.compress",
+                        "latency_ms": latency_ms,
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "total_tokens": 0,
+                        "error": str(e),
+                    }
                 ],
             }
 
@@ -178,8 +219,10 @@ def make_update_memory_node(domain_config: MemoryDomainConfig) -> Callable[[dict
     Ingests only turns not yet processed (``compressed_turns[wm.turns_completed:]``),
     so it's safe to call every loop iteration without double-counting facts.
     """
+    import time as _time
 
     def _update_memory(state: dict[str, Any]) -> dict:
+        _t0 = _time.perf_counter()
         try:
             wm = build_working_memory_from_state(state, domain_config)
             compressed_history: list[dict] = list(state.get("compressed_turns", []) or [])
@@ -191,10 +234,11 @@ def make_update_memory_node(domain_config: MemoryDomainConfig) -> Callable[[dict
 
             snapshot = wm.to_merged_memory()
             turn_count = int(state.get("turn_count", 1) or 1)
+            latency_ms = int((_time.perf_counter() - _t0) * 1000)
             logger.info(
-                "Working memory updated (turn %s): %s total facts, %s active, gaps=%s, conflicts=%s",
+                "Working memory updated (turn %s): %s total facts, %s active, gaps=%s, conflicts=%s, latency_ms=%s",
                 turn_count, snapshot.total_facts, wm.active_fact_count(),
-                wm.knowledge_gaps, len(wm.unresolved_conflicts),
+                wm.knowledge_gaps, len(wm.unresolved_conflicts), latency_ms,
             )
 
             return {
@@ -211,13 +255,36 @@ def make_update_memory_node(domain_config: MemoryDomainConfig) -> Callable[[dict
                         },
                     }
                 ],
+                "llm_metrics": [
+                    {
+                        "node": "interview.update_memory",
+                        "latency_ms": latency_ms,
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "total_tokens": 0,
+                        "active_facts": wm.active_fact_count(),
+                        "total_facts": snapshot.total_facts,
+                        "knowledge_gaps": len(wm.knowledge_gaps) if isinstance(wm.knowledge_gaps, list) else 0,
+                    }
+                ],
             }
 
         except Exception as e:
+            latency_ms = int((_time.perf_counter() - _t0) * 1000)
             logger.error("Error updating working memory: %s", e)
             return {
                 "workflow_events": [
                     {"event": "memory.update_failed", "payload": {"error": str(e)}}
+                ],
+                "llm_metrics": [
+                    {
+                        "node": "interview.update_memory",
+                        "latency_ms": latency_ms,
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "total_tokens": 0,
+                        "error": str(e),
+                    }
                 ],
             }
 
