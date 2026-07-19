@@ -57,30 +57,30 @@ class InterviewState(MessagesState):
 
 class ResearchGraphState(TypedDict):
     research_query: str
-    company_name: str
-    focus: str
-    target_role: str
-    report_kind: str
-    max_analysts: int
+    company_name: Annotated[str, keep_latest]
+    focus: Annotated[str, keep_latest]
+    target_role: Annotated[str, keep_latest]
+    report_kind: Annotated[str, keep_latest]
+    max_analysts: Annotated[int, keep_latest]
     max_num_turns: Annotated[int, keep_latest]
-    company_type: str
+    company_type: Annotated[str, keep_latest]
     planner_enabled: Annotated[bool, keep_latest]
     review_enabled: Annotated[bool, keep_latest]
-    human_analyst_feedback: str
+    human_analyst_feedback: Annotated[str, keep_latest]
     skill_bundle: Annotated[list, keep_latest]
     research_skills: Annotated[list, keep_latest]
     skill_mapping: Annotated[dict[str, Any], keep_latest]
     source_policy_map: Annotated[dict[str, Any], keep_latest]
     domain_memory: Annotated[list, keep_latest]
     research_plan: Annotated[ResearchPlan, keep_latest]
-    analysts: list[Analyst]
+    analysts: Annotated[list[Analyst], keep_latest]
     sections: Annotated[list, operator.add]
-    introduction: str
-    content: str
-    conclusion: str
+    introduction: Annotated[str, keep_latest]
+    content: Annotated[str, keep_latest]
+    conclusion: Annotated[str, keep_latest]
     report_review: Annotated[ReviewSummary, keep_latest]
     review_notes: Annotated[list, operator.add]
     router_decisions: Annotated[list, operator.add]
     workflow_events: Annotated[list, operator.add]
-    final_report: str
+    final_report: Annotated[str, keep_latest]
     llm_metrics: Annotated[list, operator.add]
