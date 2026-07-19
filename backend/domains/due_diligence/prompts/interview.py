@@ -34,12 +34,11 @@ Domain memory you may use:
 {% endif %}
 
 {% if working_memory %}
-Research progress so far (from prior interview rounds):
+Open knowledge gaps to address in this round:
 {{ working_memory }}
 
-IMPORTANT: Use the research progress above to avoid re-asking about topics
-already covered. Focus your next question on the knowledge gaps identified above.
-If all gaps are covered, end with "Thank you so much for your help!"
+Focus your next question on ONE of the gaps above that is most critical for the brief.
+If no gaps remain and you have covered all key areas, end with "Thank you so much for your help!"
 {% endif %}
 
 Introduce yourself with a name that fits your persona, then ask your question.

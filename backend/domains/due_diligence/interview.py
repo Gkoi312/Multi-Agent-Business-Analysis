@@ -153,6 +153,34 @@ class InterviewGraphBuilder:
             ]
         )
 
+    @staticmethod
+    def _format_gaps_only(state: InterviewState) -> str:
+        """Return only the knowledge gaps from WorkingMemory for ask_question.
+
+        Intentionally omits the full fact list — injecting all known facts into
+        the question-generation prompt causes the LLM to self-censor (shorter
+        questions, premature "Thank you") because it thinks the brief is covered.
+        Gaps alone tell it *what is still missing* without suppressing depth.
+        """
+        wm_dict = state.get("working_memory") or {}
+        if not wm_dict:
+            return ""
+        try:
+            wm = WorkingMemory.from_dict(wm_dict)
+            gaps = wm.knowledge_gaps
+            turn = wm.turns_completed
+            total_facts = wm.active_fact_count()
+            if not gaps and total_facts == 0:
+                return ""
+            lines = [f"Research round {turn} complete. {total_facts} facts collected."]
+            if gaps:
+                lines.append(f"Still open ({len(gaps)} gaps): {', '.join(str(g) for g in gaps)}")
+            else:
+                lines.append("No explicit gaps remaining — probe for depth or edge cases.")
+            return "\n".join(lines)
+        except Exception:
+            return ""
+
     # ------------------------------------------------------------------
     # Round 3: Context Assembly helper
     # ------------------------------------------------------------------
@@ -432,7 +460,11 @@ class InterviewGraphBuilder:
         assigned_plan = state.get("assigned_plan")
         domain_memory = state.get("domain_memory", []) or []
 
-        working_memory_block = format_working_memory_context(state)
+        # Only inject knowledge gaps into ask_question, NOT the full fact list.
+        # Injecting all known facts causes the LLM to self-censor and ask shorter
+        # questions (or terminate early). Gaps alone tell it *what's still missing*
+        # without suppressing its curiosity about already-known topics.
+        working_memory_block = self._format_gaps_only(state)
 
         try:
             self.logger.info("Generating analyst question", analyst=analyst.name)
