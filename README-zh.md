@@ -62,7 +62,7 @@
 - ✅ SqliteSaver 持久化检查点 — 精确节点恢复，服务重启不丢进度
 - ✅ 多模型提供方：`openai`、`google`、`groq`、`deepseek`
 - ✅ **Phase 4 完成**：评测框架 — 3 个 Scorer（压缩保真度/管线质量/来源可追溯）+ 7 条一致性校验规则 + Fixture 驱动的 N 次重复可靠性分析
-- ✅ 434 个自动化测试全部通过（`backend/tests/`）
+- ✅ 387 个自动化测试全部通过（`backend/tests/`）
 - ✅ 删除了未接入生产的通用 `harness/runtime/` 图模板层和 `harness/human_loop/`——只被一个 mock domain 冒烟测试验证过，从未真正驱动过尽调工作流；把其中真正通用、不含业务语义的部分（compress/update_memory/compact_history/continue-router）抽成了 `harness/memory/nodes.py`，现在被真实的访谈图直接调用
 - ✅ 删除了 3 个从未被实例化过的 Pydantic 类型（`SkillRef`/`SourcePolicy`/`DomainMemoryRef`）和一个全仓零调用的死方法
 - ✅ 把 `ModelLoader`、`SkillRegistry`、结构化日志、共享异常类型从 `app/` 搬进了 `harness/`——这些本来就是零 HTTP 语义、零尽调业务语义的纯基础设施，之前窝在 web 层只是历史遗留，不是设计选择
@@ -71,6 +71,14 @@
 - ✅ 改名过程中顺手发现并修复了一个真实存在、此前一直静默失败的 bug:`domains/due_diligence/graph.py` 构造 `SkillRegistry` 时用的路径深度算错了一层(`parents[3]` 应为 `parents[2]`，是 Phase 1 重构多加了一层目录之后没同步改索引留下的)。`SkillRegistry.load_skill_pack()` 在目录不存在时会静默返回空列表而不报错，所以这个 bug 导致**每次真实运行时 `ai` 技能包的 Markdown 内容大概率从未真正传到过 LLM,系统一直在用兜底的通用 domain memory**。已验证修复:`load_skill_pack("ai")` 现在能正确加载 3 个角色技能 + 3 条领域记忆
 - ✅ 全仓死函数扫描(基于 AST,交叉核对了所有源文件和测试文件):删掉了约 15 个全仓零调用的函数/方法,大多是被遗弃的"异步双胞胎"方法(`acompress_completed_turn`、`acompact_history`、`acompute_new_summary`、`_agenerate_summary`),外加 `harness/evaluation/runner.py` 里整个没人用的 `EvalRunner` 类——真正在跑的评测脚本 `run_real_evals.py` 一直是直接调用 scorer,从没走过这个类(保留了确实在用的 `EvalRunResult`)。排除在扫描结果外的:FastAPI 路由处理函数和框架回调方法(`@app.on_event`、`HTMLParser.handle_*`),这些只是"看起来没人调用",实际是框架按约定调用,不是按名字调用
 - ✅ 把 `harness/models/state.py`(一个只有 10 行的函数)并进了 `harness/models/__init__.py`,把 `harness/logger/` 和 `harness/paths.py` 合并进了 `harness/observability/`(它们真正的、唯一的消费者)——刻意没有建一个 `harness/utils/` 大杂烩目录,因为那样等于重新制造了一次 `app` 当初那种"名字模糊、什么都往里塞"的问题;`exceptions.py`、`llm_loader.py`、`skill_registry.py` 继续留在 harness 顶层,因为每一个都对应一个说得清楚的能力,不是杂物
+- ✅ 修复了一个让相关性打分全程空转的接线 bug:`InterviewState` 和基于 `Send` 的 fan-out payload 从未把 `company_name`/`focus` 传到 `ToolContext`,导致 `RelevanceScoreStage` 每次都走"无目标"提前退出分支(固定 0.5 分,不做任何过滤)。逐行走查清洗管线时还发现了几处 CJK 盲区:关键词密度打分、日期抽取、内容指纹全都用空格分词,会把一整段中文文本压成一个"单词"——已改成 CJK 感知(按字符分词)、补充了中文日期格式、并给一直是空列表的垃圾域名黑名单加了种子数据
+- ✅ 把 `evidence_quality` 从"模型自报"改成了机械派生——由独立来源 ID 的数量决定(2+ → high,1 → medium,0 → low),压缩器和事实协调器共用同一个辅助函数。同时修复了跨轮次的来源 ID 去重:同一个 URL 在后续轮次重新出现时,现在会复用已有的 `source_id` 而不是重新分配一个,此前这会人为拉高独立来源计数,让同一个来源伪装成多来源互证
+- ✅ 删除了从未被真正使用过的工具调用(tool-calling)相关脚手架(`ToolContextPruner`,以及 `HistoryCompactor`/`RunningSummaryManager` 里的 tool-call 边界补全逻辑)——本仓库目前没有任何 domain 采用 LangChain 式的工具调用(搜索就是普通函数调用),这套机制从未在生产环境中被真正触发过;在对应位置留了注释,说明未来如果接入 ReAct 式工具调用 agent 需要把这层保护补回来。同一轮走查中顺手修了一个真实 bug:`HistoryCompactor` 的轮次边界切分在切分索引为奇数时,可能把一个问题和它的答案拆开
+- ✅ 删除了未被使用的模型驱动事实协调路径(`FactReconciler.reconcile_from_model_output`)——`WorkingMemory` 实际只调用代码驱动的 SPDV `reconcile()`。让 SPDV 事实匹配具备 CJK 感知能力:旧的按词切分分词器会把一整句中文压成一个 token,导致近似重复的中文事实永远无法通过 Jaccard 兜底匹配上
+- ✅ 修复了访谈 fan-out 合并时的 `InvalidUpdateError`——给 `ResearchGraphState` 里所有标量字段都加上了 `keep_latest` reducer:并行访谈分支写回共享 state 时,每个字段都需要显式的合并策略,不能只给 list 类型字段配置
+- ✅ 修复了访谈过早终止的问题:`ask_question` 之前看到的是完整的累积事实列表,而不是仅剩的知识缺口,导致模型容易过早判断"调研已完成"
+- ✅ 历史压缩现在会把自己那次摘要 LLM 调用的 token 开销以 `llm_metrics` 形式上报(此前这部分开销对 token 统计完全不可见);上下文组装也不再重复计费:已经被折叠进 running summary 的消息会从近期原始消息中排除,前面轮次已经引用过的来源也不会在后续轮次被再次整段嵌入
+- ✅ 新增 A/B 压缩对比脚本(`backend/scripts/run_compression_comparison.py`),对同一个任务分别跑"完全启用压缩" vs "完全关闭压缩"——关闭组现在连 `compact_history` 一起跳过,而不是只 no-op 掉逐轮的 `compress` 节点,这样"无压缩"基线才是真正干净的,不会混入截断裁剪带来的收益——以此衡量压缩对 token/成本的真实影响
 - 📋 Phase 5 下一步：补一个真正有内容的第二个技能包（如 `beauty/`），端到端验证"行业靠数据扩展、不靠代码"这条主张；CI 集成
 
 ### 真实评测结果（deepseek-chat，重复 3 次）
