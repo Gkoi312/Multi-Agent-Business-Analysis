@@ -265,13 +265,17 @@ class IncrementalCompressor:
         *,
         running_summary=None,
     ):
-        """Compact older messages into a summary block."""
+        """Compact older messages into a summary block.
+
+        Returns ``(projected_messages, updated_running_summary, usage)`` —
+        see ``HistoryCompactor.compact_history`` for what ``usage`` covers.
+        """
         compactor = self._get_history_compactor()
         if compactor and compactor.model is not None:
             return compactor.compact_history(
                 messages, running_summary=running_summary
             )
-        return list(messages), running_summary
+        return list(messages), running_summary, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     # ==================================================================
     # Helpers for the interview graph

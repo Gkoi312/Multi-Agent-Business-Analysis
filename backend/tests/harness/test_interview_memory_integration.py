@@ -521,7 +521,7 @@ class TestSummaryTokenBudget:
 
         # We call _generate_summary which calls _enforce_token_budget
         # Simulate by calling _enforce_token_budget directly
-        result = mgr._enforce_token_budget(
+        result, _usage = mgr._enforce_token_budget(
             "x" * 1000, mock_model, "", ""
         )
         tokens = mgr.token_counter(result)

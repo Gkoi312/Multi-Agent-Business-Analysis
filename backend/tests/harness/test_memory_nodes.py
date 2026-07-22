@@ -164,13 +164,18 @@ class TestMakeCompactHistoryNode:
         updated_rs = MagicMock()
         updated_rs.version = 2
         updated_rs.to_dict.return_value = {"version": 2}
-        mock_compressor.compact_history.return_value = ([], updated_rs)
+        usage = {"prompt_tokens": 120, "completion_tokens": 40, "total_tokens": 160}
+        mock_compressor.compact_history.return_value = ([], updated_rs, usage)
 
         node = make_compact_history_node(mock_compressor)
         result = node({"messages": [], "turn_count": 5, "compressed_turns": []})
 
         assert result["running_summary"] == {"version": 2}
         assert result["workflow_events"][0]["payload"]["version"] == 2
+        assert result["llm_metrics"][0]["node"] == "interview.compact_history"
+        assert result["llm_metrics"][0]["prompt_tokens"] == 120
+        assert result["llm_metrics"][0]["completion_tokens"] == 40
+        assert result["llm_metrics"][0]["total_tokens"] == 160
 
 
 # ===========================================================================

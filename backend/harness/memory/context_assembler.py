@@ -18,6 +18,7 @@ from harness.models.memory import (
     ContextAssemblyResult,
     ContextBudgetExceeded,
     CompressedTurn,
+    _stable_message_id,
 )
 from harness.memory.policies import TokenBudget
 from harness.memory.context_window import ContextWindowManager
@@ -71,6 +72,7 @@ class ContextAssembler:
         compressed_turns: list[CompressedTurn] | None = None,
         working_memory_str: str = "",
         execution_summary: str = "",
+        summarized_message_ids: set[str] | None = None,
     ) -> ContextAssemblyResult:
         """Build the full context payload for an LLM call.
 
@@ -89,6 +91,11 @@ class ContextAssembler:
             Formatted working memory content.
         execution_summary : str
             Execution/history compaction summary.
+        summarized_message_ids : set[str] | None
+            IDs of messages already folded into ``execution_summary`` (see
+            ``RunningSummary.summarized_message_ids``). Excluded from
+            ``recent_raw_messages`` so the same content isn't paid for twice
+            — once as summary text, once as raw messages.
 
         Returns
         -------
@@ -115,7 +122,14 @@ class ContextAssembler:
         # 3. Working memory
         wm = self._truncate_to_budget(working_memory_str, self.budget.working_memory)
 
-        # 4. Recent raw messages (after optional tool pruning)
+        # 4. Recent raw messages (after optional tool pruning). Messages
+        # already folded into execution_summary are dropped first so the
+        # same content isn't billed as both summary text and raw messages.
+        if summarized_message_ids:
+            messages = [
+                m for m in messages
+                if _stable_message_id(m) not in summarized_message_ids
+            ]
         recent = self._prepare_recent_messages(
             messages=messages,
             budget=self.budget.recent_messages,

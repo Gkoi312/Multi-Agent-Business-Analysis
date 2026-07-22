@@ -150,7 +150,12 @@ def run_once(company: str, focus: str, max_turns: int,
         # 正常路径
         graph = reporter.build_graph()
     else:
-        # Monkey-patch InterviewGraphBuilder.build，把 compress 换成 noop
+        # Monkey-patch InterviewGraphBuilder.build，把 compress 换成 noop，
+        # 并且整个跳过 compact_history —— 不是换成 noop 节点，而是压根不接线。
+        # 之前这里保留了 compact_history，导致触发历史压缩阈值时 A、B 两组会
+        # 同时吃到 cutoff-pruning 的效果（在 nodes.py 里，compact_history
+        # 和 compress 是两个独立机制，脚本只 no-op 了 compress），A 组就不再
+        # 是干净的"完全不压缩"基线，对比出来的差值会把两种机制的收益混在一起。
         # reporter.build_graph() 内部会 new 一个 InterviewGraphBuilder 并调用 .build()
         orig_build = InterviewGraphBuilder.build
 
@@ -158,7 +163,7 @@ def run_once(company: str, focus: str, max_turns: int,
             from langgraph.graph import StateGraph, END as _END, START as _START
             from domains.due_diligence.schemas import InterviewState
             from harness.memory.nodes import (
-                make_update_memory_node, make_compact_history_node,
+                make_update_memory_node,
                 make_should_continue_router,
             )
             b = StateGraph(InterviewState)
@@ -167,7 +172,6 @@ def run_once(company: str, focus: str, max_turns: int,
             b.add_node("generate_answer", self_inner._generate_answer)
             b.add_node("compress",        _make_passthrough_compress())       # ← noop
             b.add_node("update_memory",   make_update_memory_node(self_inner._domain_config))
-            b.add_node("compact_history", make_compact_history_node(self_inner.compressor))
             b.add_node("save_interview",  self_inner._save_interview)
             b.add_node("write_section",   self_inner._write_section)
             b.add_node("review_section",  self_inner._review_section)
@@ -176,9 +180,11 @@ def run_once(company: str, focus: str, max_turns: int,
             b.add_edge("search_web",      "generate_answer")
             b.add_edge("generate_answer", "compress")
             b.add_edge("compress",        "update_memory")
-            b.add_edge("update_memory",   "compact_history")
+            # No compact_history here — this arm never spends a summarization
+            # LLM call, and never gets execution_summary/cutoff-pruning
+            # either. That's the whole point of a "no compression" baseline.
             b.add_conditional_edges(
-                "compact_history",
+                "update_memory",
                 make_should_continue_router(continue_node="ask_question",
                                             stop_node="save_interview"),
                 ["ask_question", "save_interview"],

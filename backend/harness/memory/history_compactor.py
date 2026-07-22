@@ -97,10 +97,10 @@ class HistoryCompactor:
         messages: list[Any],
         *,
         running_summary: RunningSummary | None = None,
-    ) -> tuple[list[Any], RunningSummary | None]:
+    ) -> tuple[list[Any], RunningSummary | None, dict[str, int]]:
         """Compact older messages into a summary.
 
-        Returns ``(projected_messages, updated_running_summary)``.
+        Returns ``(projected_messages, updated_running_summary, usage)``.
 
         The projected messages consist of:
         1. A single ``HumanMessage`` with the summary (if any summary exists).
@@ -108,6 +108,10 @@ class HistoryCompactor:
 
         IMPORTANT: Only OLD messages are summarized. Recent messages within
         ``keep_recent_tokens`` are kept as raw. This avoids summary/raw duplication.
+
+        ``usage`` is the real token cost of the summarization LLM call(s) made
+        this invocation (zeroed if none were made) — compaction is not free,
+        and callers should account for it rather than let it go unmeasured.
 
         Parameters
         ----------
@@ -118,10 +122,12 @@ class HistoryCompactor:
 
         Returns
         -------
-        tuple[list[Any], RunningSummary | None]
+        tuple[list[Any], RunningSummary | None, dict[str, int]]
         """
+        zero_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
         if not self.model:
-            return list(messages), running_summary
+            return list(messages), running_summary, zero_usage
 
         # Split: old messages (to summarize) vs recent (to keep raw)
         old_messages, recent_messages = self._split_old_recent(messages)
@@ -129,11 +135,11 @@ class HistoryCompactor:
         if not old_messages:
             # Nothing old enough to compact
             if running_summary and running_summary.summary:
-                return self._project_with_summary(recent_messages, running_summary), running_summary
-            return list(messages), running_summary
+                return self._project_with_summary(recent_messages, running_summary), running_summary, zero_usage
+            return list(messages), running_summary, zero_usage
 
         # Only summarize the OLD messages
-        new_summary = self._summary_mgr.compute_new_summary(
+        new_summary, usage = self._summary_mgr.compute_new_summary(
             old_messages,
             running_summary=running_summary,
             model=self.model,
@@ -143,9 +149,9 @@ class HistoryCompactor:
         effective_summary = new_summary if new_summary is not None else running_summary
 
         if effective_summary is None or not effective_summary.summary:
-            return list(messages), running_summary
+            return list(messages), running_summary, usage
 
-        return self._project_with_summary(recent_messages, effective_summary), effective_summary
+        return self._project_with_summary(recent_messages, effective_summary), effective_summary, usage
 
     # ------------------------------------------------------------------
     # Helpers

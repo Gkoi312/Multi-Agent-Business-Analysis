@@ -199,6 +199,8 @@ class InterviewGraphBuilder:
         system_prompt: str,
         *,
         include_recent_messages: bool = True,
+        include_working_memory: bool = True,
+        include_research_summary: bool = True,
     ) -> list:
         """Build the projected LLM input from canonical state.
 
@@ -211,6 +213,13 @@ class InterviewGraphBuilder:
         own system_prompt, which is a strict superset of what a digest of
         the same round's results would add. Injecting both would just spend
         tokens repeating the same information twice.
+
+        ``include_working_memory`` / ``include_research_summary`` default to
+        True (the generic path). Callers that already baked a working-memory
+        or compressed-turns view into ``system_prompt`` themselves (e.g. the
+        gaps-only view ``_generate_question`` uses) must pass False for that
+        piece — otherwise the same content is billed twice: once in the
+        caller's own system_prompt, once again here.
         """
         try:
             # 1. Restore WorkingMemory from state (with domain_config)
@@ -226,12 +235,16 @@ class InterviewGraphBuilder:
             compressed_turns = [
                 CompressedTurn.from_dict(d) if isinstance(d, dict) else d
                 for d in compressed_turns_raw
-            ]
+            ] if include_research_summary else []
 
             # 4. Working memory formatted
-            working_memory_str = wm.format() if wm.active_fact_count() > 0 else ""
+            working_memory_str = (
+                wm.format() if include_working_memory and wm.active_fact_count() > 0 else ""
+            )
 
-            # 5. Assemble via ContextAssembler
+            # 5. Assemble via ContextAssembler. Messages already folded into
+            # running_summary are excluded from recent_raw_messages so the
+            # summary doesn't duplicate content that's still present raw.
             messages = state["messages"]
             result = self.context_assembler.assemble(
                 messages=messages,
@@ -239,6 +252,7 @@ class InterviewGraphBuilder:
                 compressed_turns=compressed_turns,
                 working_memory_str=working_memory_str,
                 execution_summary=running_summary_str,
+                summarized_message_ids=running_summary.summarized_message_ids,
             )
 
             # 6. Build actual LangChain messages
@@ -477,8 +491,11 @@ class InterviewGraphBuilder:
             )
 
             started_at = time.perf_counter()
+            # working_memory_block above is the gaps-only view; don't let
+            # the generic path re-inject the full working memory on top of it.
             assembled_messages = self._assemble_llm_messages(
                 state, system_prompt, include_recent_messages=True,
+                include_working_memory=False,
             )
             question = self.llm.invoke(assembled_messages)
 
@@ -568,9 +585,21 @@ class InterviewGraphBuilder:
                 )
 
                 # ---- Deep-read: fetch full page content for top results ----
+                # Drop the snippet-only entry for any URL that got a full-page
+                # fetch — otherwise both versions survive into `cleaned` and
+                # get formatted (and citation-numbered) as if they were two
+                # different sources, doubling that page's token cost for
+                # nothing.
                 deep_docs = self._deep_read(cleaned[:5], state)
                 if deep_docs:
-                    cleaned = cleaned + deep_docs
+                    deep_urls = {
+                        (d.canonical_url or d.url) for d in deep_docs
+                        if (d.canonical_url or d.url)
+                    }
+                    cleaned = [
+                        d for d in cleaned
+                        if (d.canonical_url or d.url) not in deep_urls
+                    ] + deep_docs
                     self.logger.info(
                         "Deep-read appended to search results",
                         deep_count=len(deep_docs),
@@ -631,6 +660,13 @@ class InterviewGraphBuilder:
                 for doc in cleaned:
                     url = doc.canonical_url or doc.url or ""
                     existing_sid = url_to_existing_sid.get(url) if url else None
+                    # A URL already cited in an earlier round keeps its S-id
+                    # for citation continuity, but its full text isn't
+                    # re-embedded into this round's context — it's already
+                    # sitting in an earlier `context` entry, and `context`
+                    # (unlike the Q&A history) is never pruned, so a repeat
+                    # inclusion is pure duplication, not a compaction trade-off.
+                    is_new_source = existing_sid is None
                     if existing_sid:
                         sid = existing_sid
                     else:
@@ -638,7 +674,8 @@ class InterviewGraphBuilder:
                         next_idx += 1
                         if url:
                             url_to_existing_sid[url] = sid
-                    formatted_parts.append(doc.metadata.get("formatted", str(doc)))
+                    if is_new_source:
+                        formatted_parts.append(doc.metadata.get("formatted", str(doc)))
 
                     current_turn_registry[sid] = SourceRecord(
                         source_id=sid,
@@ -657,7 +694,10 @@ class InterviewGraphBuilder:
                             credibility_note="Pipeline-cleaned; verify in review.",
                         )
                     )
-                formatted = "\n\n---\n\n".join(formatted_parts)
+                formatted = "\n\n---\n\n".join(formatted_parts) if formatted_parts else (
+                    "[All sources this round were already cited in earlier rounds — "
+                    "see prior citations for their content.]"
+                )
 
                 search_digest = SearchDigest(
                     query=search_query.search_query,
@@ -700,6 +740,7 @@ class InterviewGraphBuilder:
                     formatted_parts = []
                     for source in normalized_sources:
                         existing_sid = url_to_existing_sid.get(source.url) if source.url else None
+                        is_new_source = existing_sid is None
                         if existing_sid:
                             sid = existing_sid
                         else:
@@ -707,14 +748,18 @@ class InterviewGraphBuilder:
                             next_idx += 1
                             if source.url:
                                 url_to_existing_sid[source.url] = sid
-                        href = source.url or "#"
-                        formatted_parts.append(f'<Document href="{href}"/>\n{source.snippet}\n</Document>')
+                        if is_new_source:
+                            href = source.url or "#"
+                            formatted_parts.append(f'<Document href="{href}"/>\n{source.snippet}\n</Document>')
                         current_turn_registry[sid] = SourceRecord(
                             source_id=sid, url=source.url, title=source.title,
                             retrieved_at=self._now_iso(),
                         )
                         source.source_id = sid
-                    formatted = "\n\n---\n\n".join(formatted_parts)
+                    formatted = "\n\n---\n\n".join(formatted_parts) if formatted_parts else (
+                        "[All sources this round were already cited in earlier rounds — "
+                        "see prior citations for their content.]"
+                    )
                     search_digest = SearchDigest(
                         query=search_query.search_query,
                         source_ids=list(current_turn_registry.keys()),
@@ -785,8 +830,12 @@ class InterviewGraphBuilder:
             )
 
             started_at = time.perf_counter()
+            # working_memory_block above already combines full working memory
+            # + the last 2 compressed turns; don't let the generic path
+            # re-inject either as a separate section on top of it.
             assembled_messages = self._assemble_llm_messages(
                 state, system_prompt, include_recent_messages=True,
+                include_working_memory=False, include_research_summary=False,
             )
             answer = self.llm.invoke(assembled_messages)
 

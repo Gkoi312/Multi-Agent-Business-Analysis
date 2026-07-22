@@ -227,6 +227,51 @@ class TestContextAssemblerBudget:
         assert cwm.safe_limit == 450
         assert isinstance(cwm.safe_limit, int)
 
+    def test_summarized_messages_excluded_from_recent(self):
+        """Messages already folded into execution_summary must not also
+        appear in recent_raw_messages — regression for the compression A/B
+        test showing compaction was pure overhead (see
+        compression_comparison_*.json: enabling compression made every node
+        MORE expensive, never less, because summarized old messages were
+        never dropped from the raw-message projection).
+        """
+        from langchain_core.messages import HumanMessage, AIMessage
+
+        old_q = HumanMessage(content="old question", id="q1")
+        old_a = AIMessage(content="old answer", id="a1")
+        recent_q = HumanMessage(content="recent question", id="q2")
+        recent_a = AIMessage(content="recent answer", id="a2")
+
+        assembler = ContextAssembler(token_budget=TokenBudget(
+            system_prompt=500, research_summary=500, working_memory=500,
+            execution_summary=500, recent_messages=1000,
+        ))
+        result = assembler.assemble(
+            messages=[old_q, old_a, recent_q, recent_a],
+            system_prompt="You are helpful.",
+            execution_summary="Summary of the old exchange.",
+            summarized_message_ids={"q1", "a1"},
+        )
+
+        recent_ids = {m.id for m in result.recent_raw_messages}
+        assert recent_ids == {"q2", "a2"}, (
+            f"summarized messages q1/a1 leaked into recent_raw_messages: {recent_ids}"
+        )
+
+    def test_no_summarized_ids_keeps_all_messages(self):
+        """Without a running summary, nothing should be filtered — this is
+        the baseline (uncompacted) path and must behave exactly as before.
+        """
+        from langchain_core.messages import HumanMessage
+
+        assembler = ContextAssembler(token_budget=TokenBudget(
+            system_prompt=500, research_summary=500, working_memory=500,
+            recent_messages=1000,
+        ))
+        messages = [HumanMessage(content="a", id="1"), HumanMessage(content="b", id="2")]
+        result = assembler.assemble(messages=messages, system_prompt="hi")
+        assert {m.id for m in result.recent_raw_messages} == {"1", "2"}
+
 
 # ===========================================================================
 # 5. CompressedTurn structured facts

@@ -298,7 +298,10 @@ def make_compact_history_node(compressor: IncrementalCompressor) -> Callable[[di
     window isn't under pressure yet.
     """
 
+    import time as _time
+
     def _compact_history(state: dict[str, Any]) -> dict:
+        _t0 = _time.perf_counter()
         try:
             messages = state["messages"]
             rs_dict = state.get("running_summary") or {}
@@ -322,16 +325,30 @@ def make_compact_history_node(compressor: IncrementalCompressor) -> Callable[[di
                 }
 
             logger.info("Compacting conversation history (turn %s)", turn_count)
-            _, updated_rs = compressor.compact_history(
+            _, updated_rs, usage = compressor.compact_history(
                 messages, running_summary=running_summary,
             )
 
             version = updated_rs.version if updated_rs is not None else (
                 running_summary.version if running_summary else 0
             )
+            latency_ms = int((_time.perf_counter() - _t0) * 1000)
             result: dict[str, Any] = {
                 "workflow_events": [
                     {"event": "compact_history.completed", "payload": {"version": version}}
+                ],
+                # Emit as llm_metrics so the summarization call's real cost is
+                # visible — before this, compaction's own LLM call was
+                # invisible to any token accounting (see interview.compress
+                # for the sibling per-turn cost this mirrors).
+                "llm_metrics": [
+                    {
+                        "node": "interview.compact_history",
+                        "latency_ms": latency_ms,
+                        "prompt_tokens": usage.get("prompt_tokens", 0),
+                        "completion_tokens": usage.get("completion_tokens", 0),
+                        "total_tokens": usage.get("total_tokens", 0),
+                    }
                 ],
             }
             if updated_rs is not None:
@@ -339,10 +356,21 @@ def make_compact_history_node(compressor: IncrementalCompressor) -> Callable[[di
             return result
 
         except Exception as e:
+            latency_ms = int((_time.perf_counter() - _t0) * 1000)
             logger.error("Error during history compaction: %s", e)
             return {
                 "workflow_events": [
                     {"event": "compact_history.failed", "payload": {"error": str(e)}}
+                ],
+                "llm_metrics": [
+                    {
+                        "node": "interview.compact_history",
+                        "latency_ms": latency_ms,
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "total_tokens": 0,
+                        "error": str(e),
+                    }
                 ],
             }
 

@@ -13,6 +13,7 @@ import hashlib
 from typing import Any, Callable
 
 from harness.models.memory import RunningSummary, _stable_message_id
+from harness.utils.llm_json import _extract_usage
 
 
 # ===========================================================================
@@ -50,11 +51,14 @@ class RunningSummaryManager:
         running_summary: RunningSummary | None = None,
         model: Any,
         summary_prompt: str = "",
-    ) -> RunningSummary | None:
+    ) -> tuple[RunningSummary | None, dict[str, int]]:
         """Compute an incremental summary for messages, updating a running cursor.
 
-        Returns ``None`` if no new messages need summarization, or a new
-        ``RunningSummary`` with updated cursor tracking.
+        Returns ``(None, zero_usage)`` if no new messages need summarization,
+        or ``(new_running_summary, usage)`` — ``usage`` is the real token
+        cost of the LLM call(s) this invocation made (zeroed fields if none
+        were made), so callers can account for compaction's own cost instead
+        of it silently vanishing from token totals.
 
         Parameters
         ----------
@@ -75,7 +79,7 @@ class RunningSummaryManager:
         new_messages = self._find_new_messages(messages, running_summary)
 
         if not new_messages:
-            return None
+            return None, self._zero_usage()
 
         # NOTE: no domain currently does LangChain-style tool-calling inside
         # state["messages"] (search runs as a plain function call — see
@@ -87,11 +91,11 @@ class RunningSummaryManager:
 
         # Don't summarize too few messages
         if len(new_messages) < 2:
-            return None
+            return None, self._zero_usage()
 
         # Build new summary
         new_text = self._build_summary_block(new_messages)
-        summary_content = self._generate_summary(
+        summary_content, usage = self._generate_summary(
             model=model,
             existing_summary=running_summary.summary,
             new_text=new_text,
@@ -106,7 +110,7 @@ class RunningSummaryManager:
             summarized_message_ids=running_summary.summarized_message_ids | new_ids,
             last_summarized_message_id=self._get_id(new_messages[-1]),
             version=running_summary.version + 1,
-        )
+        ), usage
 
     # ------------------------------------------------------------------
     # Helpers
@@ -160,11 +164,15 @@ class RunningSummaryManager:
         existing_summary: str,
         new_text: str,
         summary_prompt: str,
-    ) -> str:
+    ) -> tuple[str, dict[str, int]]:
         """Call the LLM to generate or extend a summary.
 
         Enforces max_summary_tokens: if the model produces a summary that exceeds
         the budget, attempts to re-compress or falls back to truncation.
+
+        Returns ``(content, usage)`` — ``usage`` sums every ``model.invoke()``
+        call made in service of this one summary (the initial generation plus
+        any re-compression retry).
         """
         if not summary_prompt:
             summary_prompt = (
@@ -191,11 +199,13 @@ class RunningSummaryManager:
         response = model.invoke([HumanMessage(content=prompt)])
         content = getattr(response, "content", str(response))
         content = content.strip()
+        usage = _extract_usage(response)
 
         # Enforce max_summary_tokens
-        content = self._enforce_token_budget(content, model, summary_prompt, existing_summary)
+        content, extra_usage = self._enforce_token_budget(content, model, summary_prompt, existing_summary)
+        usage = self._sum_usage(usage, extra_usage)
 
-        return content
+        return content, usage
 
     def _enforce_token_budget(
         self,
@@ -203,15 +213,16 @@ class RunningSummaryManager:
         model: Any,
         summary_prompt: str,
         existing_summary: str,
-    ) -> str:
+    ) -> tuple[str, dict[str, int]]:
         """Ensure the summary does not exceed max_summary_tokens.
 
         First tries asking the model to compress further, then falls back
-        to hard truncation at token boundary.
+        to hard truncation at token boundary. Returns ``(content, usage)`` —
+        ``usage`` is zeroed unless a re-compression call was actually made.
         """
         actual_tokens = self.token_counter(content)
         if actual_tokens <= self.max_summary_tokens:
-            return content
+            return content, self._zero_usage()
 
         import logging
         logger = logging.getLogger(__name__)
@@ -231,22 +242,23 @@ class RunningSummaryManager:
                 "Return ONLY the compressed summary text."
             )
             response = model.invoke([HumanMessage(content=compress_prompt)])
+            usage = _extract_usage(response)
             compressed = getattr(response, "content", str(response)).strip()
             compressed_tokens = self.token_counter(compressed)
 
             if compressed_tokens <= self.max_summary_tokens:
-                return compressed
+                return compressed, usage
 
             logger.warning(
                 f"Re-compression still over budget: {compressed_tokens} > {self.max_summary_tokens}. "
                 "Falling back to truncation."
             )
             # Fallback: truncate to token boundary
-            return self._truncate_to_token_boundary(compressed)
+            return self._truncate_to_token_boundary(compressed), usage
 
         except Exception:
             logger.warning("Re-compression failed; truncating summary.")
-            return self._truncate_to_token_boundary(content)
+            return self._truncate_to_token_boundary(content), self._zero_usage()
 
     def _truncate_to_token_boundary(self, text: str) -> str:
         """Truncate text to fit within max_summary_tokens at a word boundary."""
@@ -265,6 +277,14 @@ class RunningSummaryManager:
     # ------------------------------------------------------------------
     # Static helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _zero_usage() -> dict[str, int]:
+        return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+    @staticmethod
+    def _sum_usage(a: dict[str, int], b: dict[str, int]) -> dict[str, int]:
+        return {k: a.get(k, 0) + b.get(k, 0) for k in ("prompt_tokens", "completion_tokens", "total_tokens")}
 
     @staticmethod
     def _get_id(msg: Any) -> str:
