@@ -412,18 +412,17 @@ async def get_task_events(request: Request, task_id: str, limit: int = 50):
 @router.get("/tasks/{task_id}/metrics")
 async def get_task_metrics(request: Request, task_id: str):
     username = _require_current_user(request)
-    task = _require_owned_task(task_id, username)
-    from harness.observability.metrics import get_ledger
+    _require_owned_task(task_id, username)
+    from harness.observability.metrics import MetricsCollector
     from harness.observability.tracer import get_tracer
     from server.api.models.request_models import MetricsResponse
 
-    # Serve stored snapshot for completed tasks (survives server restarts)
-    snapshot = task.get("metrics_snapshot")
-    if snapshot and isinstance(snapshot, dict) and snapshot.get("call_count", 0) > 0:
-        return MetricsResponse(**{k: v for k, v in snapshot.items() if k != "budget_cap_usd"})
-
-    ledger = get_ledger(task_id)
+    # NodeTracer's on-disk JSONL is the single durable per-LLM-call log, so
+    # this always reads current, correct data — for in-progress and completed
+    # tasks alike, and across server restarts — with no separate snapshot path.
     tracer = get_tracer(task_id)
+    entries = tracer.read_all()
+    ledger = MetricsCollector.from_trace_entries(task_id, entries)
 
     # Merge ledger (token/cost) + tracer (per-node timing) into one response
     ledger_summary = ledger.summary()

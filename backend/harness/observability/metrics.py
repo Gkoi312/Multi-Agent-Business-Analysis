@@ -34,9 +34,8 @@ Usage::
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
-
 
 # ---------------------------------------------------------------------------
 # Model pricing table (USD per 1M tokens)
@@ -117,7 +116,6 @@ class LLMCallRecord:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     latency_ms: int = 0
-    note: str = ""
 
     @property
     def total_tokens(self) -> int:
@@ -126,18 +124,6 @@ class LLMCallRecord:
     @property
     def cost(self) -> float:
         return get_price(self.model).cost(self.prompt_tokens, self.completion_tokens)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "node": self.node,
-            "model": self.model,
-            "prompt_tokens": self.prompt_tokens,
-            "completion_tokens": self.completion_tokens,
-            "total_tokens": self.total_tokens,
-            "latency_ms": self.latency_ms,
-            "cost": round(self.cost, 6),
-            "note": self.note,
-        }
 
 
 # ---------------------------------------------------------------------------
@@ -155,7 +141,6 @@ class MetricsCollector:
         self.task_id = task_id
         self._calls: list[LLMCallRecord] = []
         self._budget_cap: float | None = None  # USD
-        self._budget_warning_pct: float = 0.80  # warn at 80% of cap
 
     # -- record -------------------------------------------------------------
 
@@ -166,7 +151,6 @@ class MetricsCollector:
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
         latency_ms: int = 0,
-        note: str = "",
     ) -> LLMCallRecord:
         """Record one LLM call and return the record."""
         rec = LLMCallRecord(
@@ -175,7 +159,6 @@ class MetricsCollector:
             prompt_tokens=int(prompt_tokens or 0),
             completion_tokens=int(completion_tokens or 0),
             latency_ms=int(latency_ms or 0),
-            note=note,
         )
         self._calls.append(rec)
         return rec
@@ -198,17 +181,7 @@ class MetricsCollector:
             return False
         return self.estimated_cost > self._budget_cap
 
-    @property
-    def nearing_budget(self) -> bool:
-        if self._budget_cap is None or self._budget_cap == 0:
-            return False
-        return self.estimated_cost >= self._budget_cap * self._budget_warning_pct
-
     # -- aggregation --------------------------------------------------------
-
-    @property
-    def calls(self) -> list[LLMCallRecord]:
-        return list(self._calls)
 
     @property
     def call_count(self) -> int:
@@ -307,47 +280,26 @@ class MetricsCollector:
             "by_model": self.by_model(),
         }
 
-    # -- serialisation ------------------------------------------------------
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "task_id": self.task_id,
-            "calls": [c.to_dict() for c in self._calls],
-            "budget_cap": self._budget_cap,
-        }
+    # -- construction ---------------------------------------------------------
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "MetricsCollector":
-        m = cls(task_id=str(d.get("task_id", "")))
-        m._budget_cap = d.get("budget_cap")
-        for c in d.get("calls", []) or []:
-            m._calls.append(
-                LLMCallRecord(
-                    node=str(c.get("node", "")),
-                    model=str(c.get("model", "")),
-                    prompt_tokens=int(c.get("prompt_tokens", 0) or 0),
-                    completion_tokens=int(c.get("completion_tokens", 0) or 0),
-                    latency_ms=int(c.get("latency_ms", 0) or 0),
-                    note=str(c.get("note", "")),
+    def from_trace_entries(cls, task_id: str, entries: list[Any]) -> MetricsCollector:
+        """Build a cost/token ledger by aggregating ``NodeTracer`` entries.
+
+        ``NodeTracer``'s on-disk JSONL is the single durable per-LLM-call log
+        (see ``harness.observability.tracer``); this reconstructs the ledger
+        view from it on every read instead of maintaining a second,
+        independently-written in-memory store that can drift out of sync.
+        """
+        m = cls(task_id=task_id)
+        for entry in entries:
+            node = getattr(entry, "node_name", "") or ""
+            for call in getattr(entry, "llm_calls", []) or []:
+                m.record(
+                    node=node,
+                    model=str(call.get("model", "")),
+                    prompt_tokens=int(call.get("prompt_tokens", 0) or 0),
+                    completion_tokens=int(call.get("completion_tokens", 0) or 0),
+                    latency_ms=int(call.get("latency_ms", 0) or 0),
                 )
-            )
         return m
-
-
-# ---------------------------------------------------------------------------
-# Global ledger (one per active task, keyed by task_id)
-# ---------------------------------------------------------------------------
-
-_ledgers: dict[str, MetricsCollector] = {}
-
-
-def get_ledger(task_id: str) -> MetricsCollector:
-    """Get or create a ``MetricsCollector`` for *task_id*."""
-    if task_id not in _ledgers:
-        _ledgers[task_id] = MetricsCollector(task_id)
-    return _ledgers[task_id]
-
-
-def remove_ledger(task_id: str) -> None:
-    """Remove a ledger from the registry."""
-    _ledgers.pop(task_id, None)
