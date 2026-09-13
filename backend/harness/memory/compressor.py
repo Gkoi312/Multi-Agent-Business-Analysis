@@ -31,6 +31,39 @@ logger = logging.getLogger(__name__)
 
 
 # ===========================================================================
+# numbers_mentioned validation — catch decimal-shift transcription errors
+# ===========================================================================
+#
+# numbers_mentioned is taken verbatim from LLM JSON with no downstream
+# validation, unlike facts[].value which sits inside a fuller sentence
+# context. Empirically (see eval_results/compression_results.json,
+# comp_001_tesla_q3), the isolated numbers_mentioned restatement is prone to
+# decimal-point slips the model doesn't make when writing the same value
+# inside a full sentence (e.g. fact text correctly says "$25.47 billion" but
+# numbers_mentioned separately says "254.7" — exactly 10x off). This filter
+# drops numbers_mentioned entries that look like a power-of-ten decimal
+# shift of a same-unit value already stated in a fact.
+
+_SCALE_SHIFT_RATIOS = (10.0, 100.0, 0.1, 0.01)
+
+
+def _is_scale_shifted(candidate: float, reference: float) -> bool:
+    """True if candidate is a power-of-ten decimal-shift of reference."""
+    if reference == 0:
+        return False
+    ratio = candidate / reference
+    return any(abs(ratio - r) < r * 0.01 for r in _SCALE_SHIFT_RATIOS)
+
+
+def _units_compatible(a: str, b: str) -> bool:
+    """Loose unit match — same convention as FactReconciler._same_subject."""
+    a, b = a.strip().lower(), b.strip().lower()
+    if not a or not b:
+        return True
+    return a == b or a in b or b in a
+
+
+# ===========================================================================
 # Compression prompt — structured facts output
 # ===========================================================================
 
@@ -393,10 +426,11 @@ class IncrementalCompressor:
             ))
 
         # Parse numbers
-        numbers = []
+        numbers_raw = []
         for n in (data.get("numbers_mentioned") or []):
             if isinstance(n, dict):
-                numbers.append(n)
+                numbers_raw.append(n)
+        numbers = self._filter_scale_shifted_numbers(numbers_raw, facts)
 
         return CompressedTurn(
             question_intent=str(data.get("question_intent", "") or ""),
@@ -404,3 +438,56 @@ class IncrementalCompressor:
             numbers_mentioned=numbers,
             compression_error="",
         )
+
+    @staticmethod
+    def _filter_scale_shifted_numbers(
+        numbers: list[dict[str, Any]],
+        facts: list[MemoryFact],
+    ) -> list[dict[str, Any]]:
+        """Drop numbers_mentioned entries that are a decimal-shifted
+        duplicate of a same-unit value already stated in a fact.
+
+        Facts are trusted over numbers_mentioned here — fact.value is
+        parsed from a full sentence, numbers_mentioned is an isolated
+        restatement with no other validation.
+        """
+        fact_values: list[tuple[float, str]] = []
+        for fact in facts:
+            if fact.value is None:
+                continue
+            try:
+                fact_values.append(
+                    (float(str(fact.value).replace(",", "")), (fact.unit or ""))
+                )
+            except (TypeError, ValueError):
+                continue
+
+        if not fact_values:
+            return numbers
+
+        kept: list[dict[str, Any]] = []
+        for n in numbers:
+            try:
+                num_val = float(str(n.get("value", "")).replace(",", ""))
+            except (TypeError, ValueError):
+                kept.append(n)
+                continue
+            num_unit = str(n.get("unit") or "")
+
+            shifted_against = next(
+                (
+                    fact_val for fact_val, fact_unit in fact_values
+                    if _units_compatible(num_unit, fact_unit)
+                    and _is_scale_shifted(num_val, fact_val)
+                ),
+                None,
+            )
+            if shifted_against is not None:
+                logger.warning(
+                    f"Dropping numbers_mentioned entry value={n.get('value')!r} "
+                    f"unit={num_unit!r} — looks like a decimal-shifted duplicate "
+                    f"of fact value {shifted_against}"
+                )
+                continue
+            kept.append(n)
+        return kept

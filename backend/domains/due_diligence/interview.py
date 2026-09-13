@@ -542,15 +542,41 @@ class InterviewGraphBuilder:
             from harness.utils.llm_json import invoke_as_json
             search_prompt = GENERATE_SEARCH_QUERY.render(
                 assigned_plan=self._format_assigned_plan(state.get("assigned_plan")),
+                skill_card=self._format_skill_card(state.get("skill_card")),
             )
 
             started_at = time.perf_counter()
             assembled_messages = self._assemble_llm_messages(
                 state, search_prompt, include_recent_messages=True,
             )
-            search_query, query_usage = invoke_as_json(
-                self.llm, assembled_messages, SearchQuery,
-            )
+            try:
+                search_query, query_usage = invoke_as_json(
+                    self.llm, assembled_messages, SearchQuery,
+                )
+            except Exception as parse_exc:
+                analyst = state.get("analyst")
+                company = state.get("company_name", "") or ""
+                focus = state.get("focus", "") or ""
+                role = str(getattr(analyst, "role", "") or getattr(analyst, "description", "") or "")
+                fallback_terms = " ".join(
+                    part for part in [company, role, focus, "due diligence"] if part
+                ).strip()
+                search_query = SearchQuery(
+                    search_query=fallback_terms or "AI company due diligence",
+                    source_type="web",
+                    site_hints=[],
+                    freshness_hint="balanced",
+                    reasoning=(
+                        "Fallback query: the LLM did not return parseable JSON "
+                        f"for search routing ({parse_exc})."
+                    ),
+                )
+                query_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+                self.logger.warning(
+                    "Search query JSON parse failed; using fallback query",
+                    query=search_query.search_query,
+                    error=str(parse_exc),
+                )
 
             query_latency_ms = int((time.perf_counter() - started_at) * 1000)
 
@@ -996,21 +1022,21 @@ class InterviewGraphBuilder:
         if sections:
             section_text = str(sections[-1])
         findings: list[ReviewFinding] = []
-        if "### Sources" not in section_text:
+        if "### Sources" not in section_text and "### 信息来源" not in section_text:
             findings.append(
                 ReviewFinding(
                     severity="high",
                     title="Missing Sources subsection",
-                    detail='Section text has no "### Sources" block.',
-                    suggested_fix="Add a Sources list matching in-section [n] citations.",
+                    detail='Section text has no "### Sources" or "### 信息来源" block.',
+                    suggested_fix="Add a source list matching in-section [n] citations.",
                 )
             )
-        if "### Risk Notes" not in section_text:
+        if "### Risk Notes" not in section_text and "### 风险提示" not in section_text:
             findings.append(
                 ReviewFinding(
                     severity="medium",
                     title="Missing Risk Notes subsection",
-                    detail='Section text has no "### Risk Notes" block.',
+                    detail='Section text has no "### Risk Notes" or "### 风险提示" block.',
                     suggested_fix="Add risk notes with impact and severity where relevant.",
                 )
             )

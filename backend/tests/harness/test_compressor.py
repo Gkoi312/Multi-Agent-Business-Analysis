@@ -153,6 +153,48 @@ class TestCompressCompletedTurn:
         )
         assert turn.compression_error != ""
 
+    def test_numbers_mentioned_scale_shift_filtered(self):
+        """numbers_mentioned entries that are a decimal-shifted duplicate of
+        a fact's value get dropped; unrelated numbers are kept.
+
+        Reproduces the real bug found in eval_results/compression_results.json
+        (comp_001_tesla_q3): fact text correctly said "$25.47 billion" but
+        numbers_mentioned separately said "254.7" — exactly 10x off.
+        """
+        from harness.models.memory import SourceRecord
+
+        llm = MagicMock()
+        response = MagicMock()
+        response.content = (
+            '{"question_intent": "What is the revenue?",'
+            '"facts": ['
+            '  {"text": "Revenue consensus was $25.47 billion USD",'
+            '   "primary_category": "financials",'
+            '   "subject": "Revenue", "predicate": "consensus",'
+            '   "value": "25.47", "unit": "USD", "period": "Q3 2025",'
+            '   "confidence": 0.9, "source_ids": ["S1"]}'
+            '],'
+            '"numbers_mentioned": ['
+            '  {"value": "254.7", "unit": "USD", "context": "revenue consensus"},'
+            '  {"value": "8", "unit": "%", "context": "YoY growth"}'
+            ']}'
+        )
+        llm.invoke.return_value = response
+        compressor = IncrementalCompressor(llm)
+        registry = {
+            "S1": SourceRecord(source_id="S1", url="https://example.com/1", title="Example 1"),
+        }
+
+        turn = compressor.compress_completed_turn(
+            question="What is the revenue?",
+            answer="Revenue consensus was $25.47 billion USD, up 8% YoY.",
+            source_registry=registry,
+        )
+
+        values = [n["value"] for n in turn.numbers_mentioned]
+        assert "254.7" not in values
+        assert "8" in values
+
 
 # ===========================================================================
 # History compaction trigger

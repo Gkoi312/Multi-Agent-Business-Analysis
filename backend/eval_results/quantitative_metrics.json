@@ -1,0 +1,612 @@
+[
+  {
+    "task_id": "d0bfbdaf-e84a-4811-94c6-d889a68529bf",
+    "company": "OPENAI",
+    "focus": "(none)",
+    "status": "completed",
+    "wall_time_sec": 3781210.2,
+    "wall_time_min": 63020.17,
+    "total_prompt_tokens": 0,
+    "total_completion_tokens": 0,
+    "total_tokens": 0,
+    "estimated_cost_usd": 0.0,
+    "search_rounds": 0,
+    "ask_q_prompt_tokens_series": [],
+    "answer_prompt_tokens_series": [],
+    "context_growth_pct": null,
+    "write_section_prompts": [],
+    "by_node": {}
+  },
+  {
+    "task_id": "243ca564-3d5f-413d-bc62-2a313744ba4e",
+    "company": "deepseek",
+    "focus": "AI Tech, data security",
+    "status": "failed",
+    "wall_time_sec": 115.0,
+    "wall_time_min": 1.92,
+    "total_prompt_tokens": 0,
+    "total_completion_tokens": 0,
+    "total_tokens": 0,
+    "estimated_cost_usd": 0.0,
+    "search_rounds": 0,
+    "ask_q_prompt_tokens_series": [],
+    "answer_prompt_tokens_series": [],
+    "context_growth_pct": null,
+    "write_section_prompts": [],
+    "by_node": {
+      "report.create_analyst": {
+        "calls": 1,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "latency_ms": 7830
+      }
+    }
+  },
+  {
+    "task_id": "a6547b8b-97f9-44c2-a2ed-d7ffc89b80f7",
+    "company": "deepseek",
+    "focus": "ai tech",
+    "status": "failed",
+    "wall_time_sec": 32.5,
+    "wall_time_min": 0.54,
+    "total_prompt_tokens": 578,
+    "total_completion_tokens": 257,
+    "total_tokens": 835,
+    "estimated_cost_usd": 0.0004,
+    "search_rounds": 0,
+    "ask_q_prompt_tokens_series": [],
+    "answer_prompt_tokens_series": [],
+    "context_growth_pct": null,
+    "write_section_prompts": [],
+    "by_node": {
+      "report.create_analyst": {
+        "calls": 1,
+        "prompt_tokens": 578,
+        "completion_tokens": 257,
+        "total_tokens": 835,
+        "latency_ms": 3214
+      }
+    }
+  },
+  {
+    "task_id": "edf05dba-2bab-4855-9a11-245fd5ba5105",
+    "company": "deepseek",
+    "focus": "ai",
+    "status": "completed",
+    "wall_time_sec": 124.6,
+    "wall_time_min": 2.08,
+    "total_prompt_tokens": 238435,
+    "total_completion_tokens": 37089,
+    "total_tokens": 275524,
+    "estimated_cost_usd": 0.1052,
+    "search_rounds": 18,
+    "ask_q_prompt_tokens_series": [
+      421,
+      2183,
+      3972,
+      418,
+      1923,
+      3908,
+      416,
+      2505,
+      3828,
+      421,
+      2183,
+      3972,
+      418,
+      1923,
+      3908,
+      416,
+      2505,
+      3828
+    ],
+    "answer_prompt_tokens_series": [
+      2584,
+      3961,
+      5399,
+      2660,
+      3969,
+      5353,
+      2218,
+      4204,
+      4348,
+      2584,
+      3961,
+      5399,
+      2660,
+      3969,
+      5353,
+      2218,
+      4204,
+      4348
+    ],
+    "context_growth_pct": 809.3,
+    "write_section_prompts": [
+      11538,
+      10376,
+      10557,
+      11538,
+      10376,
+      10557
+    ],
+    "by_node": {
+      "report.create_analyst": {
+        "calls": 3,
+        "prompt_tokens": 1731,
+        "completion_tokens": 753,
+        "total_tokens": 2484,
+        "latency_ms": 9408
+      },
+      "interview.ask_question": {
+        "calls": 18,
+        "prompt_tokens": 39148,
+        "completion_tokens": 4934,
+        "total_tokens": 44082,
+        "latency_ms": 82128
+      },
+      "interview.search_query": {
+        "calls": 18,
+        "prompt_tokens": 33028,
+        "completion_tokens": 2064,
+        "total_tokens": 35092,
+        "latency_ms": 34070
+      },
+      "interview.generate_answer": {
+        "calls": 18,
+        "prompt_tokens": 69392,
+        "completion_tokens": 12362,
+        "total_tokens": 81754,
+        "latency_ms": 144796
+      },
+      "interview.write_section": {
+        "calls": 6,
+        "prompt_tokens": 64942,
+        "completion_tokens": 9214,
+        "total_tokens": 74156,
+        "latency_ms": 80910
+      },
+      "report.write_conclusion": {
+        "calls": 2,
+        "prompt_tokens": 9812,
+        "completion_tokens": 580,
+        "total_tokens": 10392,
+        "latency_ms": 8872
+      },
+      "report.write_introduction": {
+        "calls": 2,
+        "prompt_tokens": 9812,
+        "completion_tokens": 518,
+        "total_tokens": 10330,
+        "latency_ms": 7934
+      },
+      "report.write_report": {
+        "calls": 2,
+        "prompt_tokens": 10570,
+        "completion_tokens": 6664,
+        "total_tokens": 17234,
+        "latency_ms": 43542
+      }
+    },
+    "source_traceability": {
+      "status": "fail",
+      "cited_sentence_rate": 0.2378,
+      "unique_sources": 31,
+      "total_citations": 84,
+      "factual_sentences": 164,
+      "orphan_citations": 0,
+      "malformed": 0,
+      "body_bare_urls": 31,
+      "composite_score": 0.7689,
+      "report_format": "numeric_converted"
+    }
+  },
+  {
+    "task_id": "99cb9b6d-9d63-4dcc-bcff-ff49921554c1",
+    "company": "拼多多",
+    "focus": "电商",
+    "status": "completed",
+    "wall_time_sec": 260.1,
+    "wall_time_min": 4.33,
+    "total_prompt_tokens": 286738,
+    "total_completion_tokens": 37081,
+    "total_tokens": 323819,
+    "estimated_cost_usd": 0.1182,
+    "search_rounds": 18,
+    "ask_q_prompt_tokens_series": [
+      372,
+      3451,
+      5179,
+      377,
+      2233,
+      4766,
+      365,
+      1775,
+      3299,
+      372,
+      3451,
+      5179,
+      377,
+      2233,
+      4766,
+      365,
+      1775,
+      3299
+    ],
+    "answer_prompt_tokens_series": [
+      4599,
+      3625,
+      5801,
+      484,
+      5164,
+      4031,
+      503,
+      1939,
+      3554,
+      4599,
+      3625,
+      5801,
+      484,
+      5164,
+      4031,
+      503,
+      1939,
+      3554
+    ],
+    "context_growth_pct": 786.8,
+    "write_section_prompts": [
+      33339,
+      22781,
+      3743,
+      33339,
+      22781,
+      3743
+    ],
+    "by_node": {
+      "report.create_analyst": {
+        "calls": 3,
+        "prompt_tokens": 1740,
+        "completion_tokens": 783,
+        "total_tokens": 2523,
+        "latency_ms": 10392
+      },
+      "interview.ask_question": {
+        "calls": 18,
+        "prompt_tokens": 43634,
+        "completion_tokens": 4664,
+        "total_tokens": 48298,
+        "latency_ms": 82922
+      },
+      "interview.search_query": {
+        "calls": 18,
+        "prompt_tokens": 43172,
+        "completion_tokens": 2324,
+        "total_tokens": 45496,
+        "latency_ms": 36964
+      },
+      "interview.generate_answer": {
+        "calls": 18,
+        "prompt_tokens": 59400,
+        "completion_tokens": 18880,
+        "total_tokens": 78280,
+        "latency_ms": 255636
+      },
+      "interview.write_section": {
+        "calls": 6,
+        "prompt_tokens": 119726,
+        "completion_tokens": 5500,
+        "total_tokens": 125226,
+        "latency_ms": 66870
+      },
+      "report.write_conclusion": {
+        "calls": 2,
+        "prompt_tokens": 6102,
+        "completion_tokens": 524,
+        "total_tokens": 6626,
+        "latency_ms": 7366
+      },
+      "report.write_introduction": {
+        "calls": 2,
+        "prompt_tokens": 6102,
+        "completion_tokens": 470,
+        "total_tokens": 6572,
+        "latency_ms": 7452
+      },
+      "report.write_report": {
+        "calls": 2,
+        "prompt_tokens": 6862,
+        "completion_tokens": 3936,
+        "total_tokens": 10798,
+        "latency_ms": 31722
+      }
+    },
+    "source_traceability": {
+      "status": "pass",
+      "cited_sentence_rate": 0.3765,
+      "unique_sources": 5,
+      "total_citations": 40,
+      "factual_sentences": 85,
+      "orphan_citations": 0,
+      "malformed": 0,
+      "body_bare_urls": 0,
+      "composite_score": 1.0,
+      "report_format": "numeric_converted"
+    }
+  },
+  {
+    "task_id": "7828a80e-eeb8-4d5e-a9af-a3efed1155f1",
+    "company": "万格智元",
+    "focus": "AI端侧推理",
+    "status": "completed",
+    "wall_time_sec": 195.8,
+    "wall_time_min": 3.26,
+    "total_prompt_tokens": 336504,
+    "total_completion_tokens": 26770,
+    "total_tokens": 363274,
+    "estimated_cost_usd": 0.1203,
+    "search_rounds": 12,
+    "ask_q_prompt_tokens_series": [
+      379,
+      2132,
+      3855,
+      385,
+      2648,
+      5091,
+      379,
+      2132,
+      3855,
+      385,
+      2648,
+      5091
+    ],
+    "answer_prompt_tokens_series": [
+      4694,
+      4636,
+      3450,
+      4404,
+      5141,
+      5334,
+      4694,
+      4636,
+      3450,
+      4404,
+      5141,
+      5334
+    ],
+    "context_growth_pct": 1243.3,
+    "write_section_prompts": [
+      36066,
+      66578,
+      36066,
+      66578
+    ],
+    "by_node": {
+      "report.create_analyst": {
+        "calls": 3,
+        "prompt_tokens": 1752,
+        "completion_tokens": 570,
+        "total_tokens": 2322,
+        "latency_ms": 9174
+      },
+      "interview.ask_question": {
+        "calls": 12,
+        "prompt_tokens": 28980,
+        "completion_tokens": 3042,
+        "total_tokens": 32022,
+        "latency_ms": 60718
+      },
+      "interview.search_query": {
+        "calls": 12,
+        "prompt_tokens": 26624,
+        "completion_tokens": 1550,
+        "total_tokens": 28174,
+        "latency_ms": 26818
+      },
+      "interview.generate_answer": {
+        "calls": 12,
+        "prompt_tokens": 55318,
+        "completion_tokens": 11012,
+        "total_tokens": 66330,
+        "latency_ms": 174202
+      },
+      "interview.write_section": {
+        "calls": 4,
+        "prompt_tokens": 205288,
+        "completion_tokens": 5318,
+        "total_tokens": 210606,
+        "latency_ms": 70376
+      },
+      "report.write_conclusion": {
+        "calls": 2,
+        "prompt_tokens": 5928,
+        "completion_tokens": 566,
+        "total_tokens": 6494,
+        "latency_ms": 11556
+      },
+      "report.write_introduction": {
+        "calls": 2,
+        "prompt_tokens": 5928,
+        "completion_tokens": 456,
+        "total_tokens": 6384,
+        "latency_ms": 8980
+      },
+      "report.write_report": {
+        "calls": 2,
+        "prompt_tokens": 6686,
+        "completion_tokens": 4256,
+        "total_tokens": 10942,
+        "latency_ms": 37254
+      }
+    },
+    "source_traceability": {
+      "status": "pass",
+      "cited_sentence_rate": 0.3295,
+      "unique_sources": 13,
+      "total_citations": 45,
+      "factual_sentences": 88,
+      "orphan_citations": 0,
+      "malformed": 0,
+      "body_bare_urls": 0,
+      "composite_score": 1.0,
+      "report_format": "numeric_converted"
+    }
+  },
+  {
+    "task_id": "3ba20a2f-254a-4591-af13-43d29b6c43c4",
+    "company": "文远知行",
+    "focus": "LLM Agent",
+    "status": "completed",
+    "wall_time_sec": 114.8,
+    "wall_time_min": 1.91,
+    "total_prompt_tokens": 582,
+    "total_completion_tokens": 257,
+    "total_tokens": 839,
+    "estimated_cost_usd": 0.0004,
+    "search_rounds": 0,
+    "ask_q_prompt_tokens_series": [],
+    "answer_prompt_tokens_series": [],
+    "context_growth_pct": null,
+    "write_section_prompts": [],
+    "by_node": {
+      "report.create_analyst": {
+        "calls": 1,
+        "prompt_tokens": 582,
+        "completion_tokens": 257,
+        "total_tokens": 839,
+        "latency_ms": 2769
+      }
+    }
+  },
+  {
+    "task_id": "c2bdbfab-bed9-4237-b0b6-f3552a294f5f",
+    "company": "伏泰科技",
+    "focus": "AI Agent",
+    "status": "completed",
+    "wall_time_sec": 175.7,
+    "wall_time_min": 2.93,
+    "total_prompt_tokens": 321801,
+    "total_completion_tokens": 30695,
+    "total_tokens": 352496,
+    "estimated_cost_usd": 0.1207,
+    "search_rounds": 18,
+    "ask_q_prompt_tokens_series": [
+      377,
+      2512,
+      3267,
+      379,
+      1346,
+      2086,
+      398,
+      2710,
+      4621,
+      377,
+      2512,
+      3267,
+      379,
+      1346,
+      2086,
+      398,
+      2710,
+      4621
+    ],
+    "answer_prompt_tokens_series": [
+      4423,
+      2444,
+      5508,
+      727,
+      1392,
+      4876,
+      5124,
+      5348,
+      4258,
+      4423,
+      2444,
+      5508,
+      727,
+      1392,
+      4876,
+      5124,
+      5348,
+      4258
+    ],
+    "context_growth_pct": 1125.7,
+    "write_section_prompts": [
+      39929,
+      21002,
+      19009,
+      39929,
+      21002,
+      19009
+    ],
+    "by_node": {
+      "report.create_analyst": {
+        "calls": 3,
+        "prompt_tokens": 1821,
+        "completion_tokens": 831,
+        "total_tokens": 2652,
+        "latency_ms": 12075
+      },
+      "interview.ask_question": {
+        "calls": 18,
+        "prompt_tokens": 35392,
+        "completion_tokens": 3630,
+        "total_tokens": 39022,
+        "latency_ms": 74918
+      },
+      "interview.search_query": {
+        "calls": 18,
+        "prompt_tokens": 37002,
+        "completion_tokens": 2162,
+        "total_tokens": 39164,
+        "latency_ms": 37198
+      },
+      "interview.generate_answer": {
+        "calls": 18,
+        "prompt_tokens": 68200,
+        "completion_tokens": 12232,
+        "total_tokens": 80432,
+        "latency_ms": 207816
+      },
+      "interview.write_section": {
+        "calls": 6,
+        "prompt_tokens": 159880,
+        "completion_tokens": 5472,
+        "total_tokens": 165352,
+        "latency_ms": 80926
+      },
+      "report.write_conclusion": {
+        "calls": 2,
+        "prompt_tokens": 6126,
+        "completion_tokens": 554,
+        "total_tokens": 6680,
+        "latency_ms": 9836
+      },
+      "report.write_introduction": {
+        "calls": 2,
+        "prompt_tokens": 6126,
+        "completion_tokens": 386,
+        "total_tokens": 6512,
+        "latency_ms": 6032
+      },
+      "report.write_report": {
+        "calls": 2,
+        "prompt_tokens": 7254,
+        "completion_tokens": 5428,
+        "total_tokens": 12682,
+        "latency_ms": 42108
+      }
+    },
+    "source_traceability": {
+      "status": "fail",
+      "cited_sentence_rate": 0.2299,
+      "unique_sources": 10,
+      "total_citations": 37,
+      "factual_sentences": 87,
+      "orphan_citations": 0,
+      "malformed": 0,
+      "body_bare_urls": 7,
+      "composite_score": 0.7649,
+      "report_format": "numeric_converted"
+    }
+  }
+]

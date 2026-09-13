@@ -223,6 +223,25 @@ class AutonomousReportGenerator:
             return cand, False
         return "", bool(cand)
 
+    @staticmethod
+    def _dedupe_analyst_skill_ids(skill_ids: list[str]) -> list[str]:
+        """Clear duplicate skill_id assignments, keeping the first occurrence.
+
+        Input is assumed already existence-validated (see
+        ``_resolve_analyst_skill_id``) — this only handles the case where
+        the same valid skill_id was assigned to more than one analyst.
+        """
+        seen: set[str] = set()
+        result: list[str] = []
+        for sid in skill_ids:
+            if sid and sid in seen:
+                result.append("")
+            else:
+                if sid:
+                    seen.add(sid)
+                result.append(sid)
+        return result
+
     # ----------------------------------------------------------------------
     def create_analyst(self, state: GenerateAnalystsState):
         """Generate analyst personas based on research brief and feedback."""
@@ -250,6 +269,7 @@ class AutonomousReportGenerator:
                 Perspectives,
             )
             enriched_analysts = []
+            resolved_skill_ids = []
             for idx, analyst in enumerate(analysts.analysts):
                 skill_id, cleared_invalid = self._resolve_analyst_skill_id(
                     analyst, skill_bundle
@@ -260,6 +280,20 @@ class AutonomousReportGenerator:
                         analyst_name=analyst.name,
                         index=idx,
                         model_skill_id=analyst.skill_id,
+                    )
+                resolved_skill_ids.append(skill_id)
+
+            # Prompt tells the model never to reuse a skill_id across
+            # analysts, but nothing enforced that — first claimant keeps
+            # the card, later duplicates fall back to freeform.
+            deduped_skill_ids = self._dedupe_analyst_skill_ids(resolved_skill_ids)
+            for idx, (analyst, skill_id) in enumerate(zip(analysts.analysts, deduped_skill_ids)):
+                if skill_id != resolved_skill_ids[idx]:
+                    self.logger.warning(
+                        "Analyst skill_id duplicated across analysts; cleared",
+                        analyst_name=analyst.name,
+                        index=idx,
+                        skill_id=resolved_skill_ids[idx],
                     )
                 enriched_analysts.append(analyst.model_copy(update={"skill_id": skill_id}))
             latency_ms = int((time.perf_counter() - started_at) * 1000)
@@ -346,12 +380,21 @@ class AutonomousReportGenerator:
         """Compile all report sections into unified content."""
         sections = state.get("sections", [])
         research_query = state.get("research_query", "")
+        skill_bundle = state.get("skill_bundle", []) or []
+        report_integrator_skill = ""
+        for skill in skill_bundle:
+            if str(self._value(skill, "id", "") or "").strip() == "report-integrator":
+                report_integrator_skill = str(self._value(skill, "body", "") or "")
+                break
 
         try:
             if not sections:
                 sections = ["No sections were generated; check whether the interview stage completed successfully."]
             self.logger.info("Writing report", research_query=research_query)
-            system_prompt = REPORT_WRITER_INSTRUCTIONS.render(research_query=research_query)
+            system_prompt = REPORT_WRITER_INSTRUCTIONS.render(
+                research_query=research_query,
+                report_integrator_skill=report_integrator_skill,
+            )
             started_at = time.perf_counter()
             report = self.llm.invoke([
                 SystemMessage(content=system_prompt),

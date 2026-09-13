@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la \"A:\\\\AI-Learn\\\\Harness\\\\\" 2>/dev/null || echo \"Directory not found\")",
+      "Read(//a/AI-Learn/Harness\" 2>/dev/**)",
+      "Bash(ls -la \"A:\\\\AI-Learn\\\\Harness\\\\quanlai-clone\\\\\" 2>/dev/null && echo \"---\" && ls -la \"A:\\\\AI-Learn\\\\Harness\\\\quanlai-clone\\\\eval\\\\\" 2>/dev/null)",
+      "Read(//a/AI-Learn/Harness/quanlai-clone\" 2>/dev/**)",
+      "Bash(ls -la \"A:/AI-Learn/Harness/\")",
+      "Read(//a/AI-Learn/Harness/**)",
+      "Read(//a/AI-Learn/Harness/quanlai-clone/eval/**)",
+      "Read(//a/AI-Learn/Harness/quanlai-clone/**)",
+      "Bash(find \"A:/AI-Learn/Harness/OpenEval-main\" -type f -name \"*.md\" -o -name \"*.py\" -o -name \"*.yaml\" | head -40)",
+      "Read(//a/AI-Learn/Harness/OpenEval-main/**)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'Add harness transformation plan document *)",
+      "Bash(git checkout *)",
+      "Bash(python -m pytest tests/harness/test_tools.py -v --tb=short)",
+      "Bash(git commit -m 'feat: Phase 1+2 Harness refactor — domain/engine separation & tool pipeline *)",
+      "Bash(python -c ' *)",
+      "Bash(python -m pytest tests/harness/test_memory_models.py tests/harness/test_memory_core.py tests/harness/test_compressor.py -v --tb=short)",
+      "Bash(python -m pytest tests/harness/test_memory_models.py tests/harness/test_memory_core.py tests/harness/test_compressor.py tests/harness/test_memory_regression.py -v --tb=short)",
+      "Bash(python -m pytest tests/harness/ -q --tb=short)",
+      "Bash(python -m compileall -q harness/)",
+      "Bash(rm -rf app/schemas/ app/prompt_lib/)",
+      "Bash(python -m compileall -q app/)",
+      "Bash(rm app/__init__.py app/api/__init__.py app/exception/__init__.py app/utils/__init__.py)",
+      "Bash(python -m compileall -q app/ domains/ harness/)",
+      "Bash(python -m pytest backend/tests/harness/ -q --tb=short)",
+      "Bash(python -m pytest backend/tests/harness/ -v --tb=short)",
+      "Bash(git commit -m 'feat: Round 3 Memory & Context fixes — wire ContextAssembler into Interview Graph, WorkingMemory as sole truth source, source registry, token budget enforcement *)",
+      "Bash(python -c \"from harness.memory.working_memory import WorkingMemory; wm = WorkingMemory\\(\\); print\\('WorkingMemory OK:', type\\(wm\\).__name__\\); from domains.due_diligence.memory_config import DUE_DILIGENCE_MEMORY_CONFIG; print\\('DomainConfig OK:', DUE_DILIGENCE_MEMORY_CONFIG.categories\\)\")",
+      "Bash(git commit -m 'fix: 11 bugs in Round 3 Memory & Context integration *)"
+    ]
+  }
+}

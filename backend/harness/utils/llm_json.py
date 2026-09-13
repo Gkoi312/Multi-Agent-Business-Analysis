@@ -63,9 +63,16 @@ def invoke_as_json(
 
     try:
         data = json.loads(text)
-    except json.JSONDecodeError:
-        text = _repair_json(text)
-        data = json.loads(text)
+    except json.JSONDecodeError as first_error:
+        repaired = _repair_json(text)
+        try:
+            data = json.loads(repaired)
+        except json.JSONDecodeError as second_error:
+            preview = text[:500].replace("\n", "\\n")
+            raise ValueError(
+                "LLM response could not be parsed as JSON for "
+                f"{model_cls.__name__}. Preview: {preview!r}"
+            ) from second_error
 
     return model_cls.model_validate(data), usage
 
@@ -103,8 +110,17 @@ def _extract_usage(message: Any) -> dict[str, int]:
 
 
 def _extract_json(text: str) -> str:
-    """Extract JSON from LLM response, stripping markdown fences."""
+    """Extract JSON from LLM response.
+
+    Handles the common cases:
+    - pure JSON
+    - fenced ```json blocks
+    - explanatory text with a JSON object embedded inside
+    """
     text = text.strip()
+    if not text:
+        return text
+
     # Remove markdown code fences
     if text.startswith("```"):
         # Find the first newline after opening fence
@@ -117,6 +133,22 @@ def _extract_json(text: str) -> str:
     # Remove any leading "json" tag
     if text.startswith("json\n"):
         text = text[5:]
+    text = text.strip()
+
+    if text.startswith("{") and text.endswith("}"):
+        return text
+
+    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, flags=re.DOTALL | re.IGNORECASE)
+    if fenced:
+        return fenced.group(1).strip()
+
+    start = text.find("{")
+    if start < 0:
+        return text
+
+    candidate = _extract_balanced_json_object(text[start:])
+    if candidate:
+        return candidate
     return text
 
 
@@ -127,3 +159,29 @@ def _repair_json(text: str) -> str:
     # Remove comment lines (// ...)
     text = re.sub(r"//[^\n]*", "", text)
     return text
+
+
+def _extract_balanced_json_object(text: str) -> str:
+    """Return the first balanced top-level JSON object from *text*."""
+    depth = 0
+    in_string = False
+    escaped = False
+    for idx, ch in enumerate(text):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[: idx + 1].strip()
+    return ""

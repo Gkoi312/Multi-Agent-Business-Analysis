@@ -6,7 +6,10 @@ Analyst role definitions for AI technology company due diligence.
 
 | File | Role |
 |------|------|
-| `market-analyst.md` | Product, customers, business model, competitive landscape |
+| `competition-analyst.md` | Competitive landscape, substitutes, value capture, defensibility |
+| `financial-analyst.md` | Revenue quality, AI cost structure, unit economics, valuation support |
+| `market-analyst.md` | Product, customers, business model, commercialization |
+| `report-integrator.md` | Merge analyst memos into a decision-ready due diligence report |
 | `tech-analyst.md` | Model capability, data moat, infrastructure, team depth |
 | `risk-analyst.md` | Regulation, security, IP, geopolitical exposure |
 | `domain-memory.md` | Shared domain knowledge (framework, risk rubric, red flags) |
