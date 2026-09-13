@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
@@ -38,7 +38,7 @@ export function DashboardPage() {
         <div className="section-header">
           <div>
             <h1>创建研究任务</h1>
-            <p className="muted">AI 科技公司调研 — 提交后立即开始运行。</p>
+            <p className="muted">面向 AI 科技公司的商业尽调工作流，提交后会先生成分析师团队。</p>
           </div>
           <div className="button-row">
             <Link className="secondary-button link-button" to="/tasks">
@@ -51,6 +51,7 @@ export function DashboardPage() {
             公司名称
             <input
               onChange={(event) => setCompanyName(event.target.value)}
+              placeholder="例如：OpenAI"
               required
               value={companyName}
             />
@@ -59,6 +60,7 @@ export function DashboardPage() {
             关注领域
             <textarea
               onChange={(event) => setFocus(event.target.value)}
+              placeholder="例如：商业模式、增长质量、竞争壁垒、合规风险"
               rows={4}
               value={focus}
             />
@@ -67,6 +69,7 @@ export function DashboardPage() {
             目标角色
             <input
               onChange={(event) => setTargetRole(event.target.value)}
+              placeholder="例如：投资经理、战略负责人、产品负责人"
               value={targetRole}
             />
           </label>
@@ -86,7 +89,7 @@ export function DashboardPage() {
             disabled={submitting}
             type="submit"
           >
-            {submitting ? "启动中…" : "生成报告"}
+            {submitting ? "启动中..." : "生成报告"}
           </button>
         </form>
       </section>

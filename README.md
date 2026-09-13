@@ -6,6 +6,22 @@
 
 这个仓库同时展示了一套可复用的 Agent Harness：工具注册、搜索清洗、上下文压缩、证据追踪、任务运行时、指标观测和离线评估都被放在通用层，尽调领域只保留业务图、提示词和报告结构。
 
+## Screenshots
+
+本项目已在本地启动验证。以下截图来自 `FastAPI + Vite` 开发环境：
+
+### 登录
+
+![登录页面](docs/images/login.png)
+
+### 创建研究任务
+
+![创建研究任务](docs/images/dashboard.png)
+
+### 任务列表
+
+![任务列表](docs/images/tasks-empty.png)
+
 ## Highlights
 
 - **多 Agent 尽调工作流**：市场、技术、财务、竞争、风险、报告整合等分析角色协作生成完整报告。
@@ -326,6 +342,17 @@ Backend defaults to:
 
 ```text
 http://localhost:8000
+```
+
+If port `8000` is already occupied, run the backend on another port and point the frontend to it:
+
+```powershell
+cd backend
+python -m uvicorn server.api.main:app --host 127.0.0.1 --port 8010
+
+cd ../frontend
+$env:VITE_API_BASE_URL="http://127.0.0.1:8010/api"
+npm.cmd run dev
 ```
 
 ### 4. Start Frontend

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+﻿import type { ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
@@ -29,7 +29,7 @@ export function AppShell({ children }: AppShellProps) {
           多智能体商业分析
         </Link>
         <div className="topbar-actions">
-          {loading ? <span className="muted">检查登录状态…</span> : null}
+          {loading ? <span className="muted">检查登录状态...</span> : null}
           {!loading && isAuthenticated ? (
             <>
               <span className="user-chip">{user?.username}</span>
