@@ -9,11 +9,13 @@ after assembly.
 """
 from __future__ import annotations
 
+import logging
+import os
 import re
-import math
 from dataclasses import dataclass, field
 from typing import Any
 
+logger = logging.getLogger(__name__)
 
 # ===========================================================================
 # Known model context window sizes (tokens) — normalized keys
@@ -45,6 +47,11 @@ _MODEL_LIMITS: dict[str, int] = {
     "gemini-2.5-flash": 1_048_576,
     "gemini-2.5-pro": 1_048_576,
     "gemini-2.5-flash-lite": 1_048_576,
+    # Moonshot AI (Kimi)
+    "moonshot-v1-8k": 8_192,
+    "moonshot-v1-32k": 32_768,
+    "moonshot-v1-128k": 131_072,
+    "kimi-k2": 131_072,
 }
 
 
@@ -73,8 +80,10 @@ class ContextWindowManager:
     model_name : str
         Model identifier, e.g. ``"gpt-4o"`` or ``"gpt-4o-2024-11-20"``.
     max_tokens : int | None
-        Explicit override for context window size. Falls back to lookup table,
-        then to 8192.
+        Explicit override for context window size. Falls back to the lookup
+        table, then to the ``LLM_CONTEXT_WINDOW_TOKENS`` env var, then to a
+        conservative 8192 (with a logged warning, since that's almost
+        certainly wrong for any real modern model).
     reserved_tokens : int
         Tokens reserved for model output (default 2000).
     safe_ratio : float
@@ -100,7 +109,27 @@ class ContextWindowManager:
 
         # ---- Resolve max_tokens ----
         if self.max_tokens is None:
-            self.max_tokens = _MODEL_LIMITS.get(self._normalized_model, 8192)
+            self.max_tokens = _MODEL_LIMITS.get(self._normalized_model)
+
+        if self.max_tokens is None:
+            env_override = os.getenv("LLM_CONTEXT_WINDOW_TOKENS")
+            if env_override:
+                try:
+                    self.max_tokens = int(env_override)
+                except ValueError:
+                    logger.warning(
+                        f"LLM_CONTEXT_WINDOW_TOKENS='{env_override}' is not a valid integer; ignoring it."
+                    )
+
+        if self.max_tokens is None:
+            self.max_tokens = 8192
+            logger.warning(
+                f"Model '{self.model_name}' (normalized: '{self._normalized_model}') has no known "
+                f"context window — falling back to a conservative {self.max_tokens} tokens. This "
+                "likely triggers compression far earlier than necessary for a real modern model. "
+                f"Fix: add '{self._normalized_model}' to _MODEL_LIMITS in context_window.py, or set "
+                "the LLM_CONTEXT_WINDOW_TOKENS env var to this model's real context window size."
+            )
 
         # ---- Parameter validation ----
         if self.reserved_tokens >= self.max_tokens:
@@ -246,10 +275,6 @@ class ContextWindowManager:
         """The token count at which we should trigger compression (public)."""
         return int((self.max_tokens - self.reserved_tokens) * self.safe_ratio)
 
-    def _safe_limit(self) -> int:
-        """Deprecated: use ``safe_limit`` property instead."""
-        return self.safe_limit
-
     def should_compress(
         self,
         messages: list[Any],
@@ -262,129 +287,4 @@ class ContextWindowManager:
         total += self.estimate_tokens(working_memory_str)
         total += self.estimate_tokens(compressed_turns_str)
         total += self.estimate_messages(messages)
-        return total > self._safe_limit()
-
-    # ------------------------------------------------------------------
-    # Context assembly verification & shrinkage
-    # ------------------------------------------------------------------
-
-    def current_usage_estimate(
-        self,
-        messages: list[Any],
-        system_prompt: str = "",
-        working_memory_str: str = "",
-        compressed_turns_str: str = "",
-    ) -> dict[str, int]:
-        """Return a breakdown of estimated token usage."""
-        sp = self.estimate_tokens(system_prompt)
-        wm = self.estimate_tokens(working_memory_str)
-        ct = self.estimate_tokens(compressed_turns_str)
-        msgs = self.estimate_messages(messages)
-        return {
-            "system_prompt": sp,
-            "working_memory": wm,
-            "compressed_turns": ct,
-            "messages": msgs,
-            "total": sp + wm + ct + msgs,
-            "safe_limit": self._safe_limit(),
-            "max_tokens": self.max_tokens,
-        }
-
-    def verify_assembly(
-        self,
-        system_prompt: str,
-        research_summary: str,
-        working_memory_str: str,
-        recent_messages: list[Any],
-        search_digest_str: str = "",
-        long_term_facts_str: str = "",
-    ) -> bool:
-        """Verify that assembled context fits within the safe limit."""
-        total = (
-            self.estimate_tokens(system_prompt)
-            + self.estimate_tokens(research_summary)
-            + self.estimate_tokens(working_memory_str)
-            + self.estimate_messages(recent_messages)
-            + self.estimate_tokens(search_digest_str)
-            + self.estimate_tokens(long_term_facts_str)
-        )
-        return total <= self._safe_limit()
-
-    # ------------------------------------------------------------------
-    # Batch flush helpers
-    # ------------------------------------------------------------------
-
-    def find_flush_cutoff(
-        self,
-        messages: list[Any],
-        target_tokens: int | None = None,
-    ) -> int:
-        """Find a safe cutoff index to release at least ``target_tokens``
-        worth of messages (defaults to ``token_flush_size``).
-
-        Returns the index after which messages should be kept.
-        Never splits AI tool-call / ToolMessage pairs.
-
-        Parameters
-        ----------
-        messages : list[Any]
-            Full message list.
-        target_tokens : int | None
-            Tokens to release; defaults to ``self.token_flush_size``.
-
-        Returns
-        -------
-        int
-            Index of the first message to KEEP (all before this are flushed).
-        """
-        if target_tokens is None:
-            target_tokens = self.token_flush_size
-
-        accumulated = 0
-        cutoff = 0
-
-        for i, msg in enumerate(messages):
-            if accumulated >= target_tokens:
-                # Check safety: don't split tool call boundaries
-                safe = self._find_safe_cutoff(messages, i)
-                return safe
-            content = str(getattr(msg, "content", str(msg)))
-            accumulated += self.estimate_tokens(content) + 4
-            cutoff = i + 1
-
-        return cutoff
-
-    @staticmethod
-    def _find_safe_cutoff(messages: list[Any], candidate: int) -> int:
-        """Advance cutoff past ToolMessage blocks to avoid splitting pairs.
-
-        If cutting at ``candidate`` would split an AI tool_call from its
-        ToolMessage responses, advance until all tool responses are included.
-        """
-        if candidate >= len(messages):
-            return candidate
-
-        try:
-            from langchain_core.messages import ToolMessage, AIMessage
-        except ImportError:
-            return candidate
-
-        idx = candidate
-        # Collect tool_call_ids from the messages being cut
-        tool_call_ids = set()
-        for msg in messages[candidate:]:
-            if isinstance(msg, ToolMessage) and msg.tool_call_id:
-                tool_call_ids.add(msg.tool_call_id)
-
-        if not tool_call_ids:
-            return candidate
-
-        # Search backward for AI messages with these tool calls
-        for i in range(candidate - 1, -1, -1):
-            msg = messages[i]
-            if isinstance(msg, AIMessage) and msg.tool_calls:
-                ai_ids = {tc.get("id") for tc in msg.tool_calls if tc.get("id")}
-                if tool_call_ids & ai_ids:
-                    return i  # Cut before the AI message that spawned these tools
-
-        return candidate
+        return total > self.safe_limit

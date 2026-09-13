@@ -29,7 +29,6 @@ from harness.memory.working_memory import WorkingMemory as WM
 from harness.memory.fact_reconciler import FactReconciler
 from harness.memory.working_memory import WorkingMemory
 from harness.memory.context_assembler import ContextAssembler
-from harness.memory.search_digest import SearchDigestBuilder
 from harness.memory.running_summary import RunningSummaryManager
 from harness.memory.compressor import IncrementalCompressor
 from harness.memory.policies import (
@@ -63,7 +62,6 @@ DD_CONFIG = MemoryDomainConfig(
     coverage_policy=CoveragePolicy(
         required_for_early_stop={"growth": 1, "risk": 1},
         min_independent_sources=1,
-        unresolved_conflicts_block_stop=True,
     ),
 )
 
@@ -168,7 +166,6 @@ class TestDuplicateFactsDontIncreaseCoverage:
         wm = WorkingMemory(coverage_policy=CoveragePolicy(
             required_for_early_stop={"growth": 1},
             min_independent_sources=1,
-            unresolved_conflicts_block_stop=False,
         ))
         wm.add_fact("Revenue grew 30% in 2025", category="growth",
                      subject="Revenue", predicate="growth_rate",
@@ -264,7 +261,6 @@ class TestSourceRegistryRoundTrip:
                 "source_ids": ["S1", "S2"],
             }],
             "numbers_mentioned": [],
-            "unanswered": [],
         }
         turn = compressor._parse_compressed_turn(data, registry)
         fact = turn.facts[0]
@@ -288,7 +284,6 @@ class TestSourceRegistryRoundTrip:
                 "evidence_quality": "medium",
             }],
             "numbers_mentioned": [],
-            "unanswered": [],
         }
         turn = compressor._parse_compressed_turn(data, registry)
         fact = turn.facts[0]
@@ -311,7 +306,6 @@ class TestSourceRegistryRoundTrip:
                 "evidence_quality": "medium",
             }],
             "numbers_mentioned": [],
-            "unanswered": [],
         }
         turn = compressor._parse_compressed_turn(data, registry)
         fact = turn.facts[0]
@@ -469,36 +463,6 @@ class TestTrueConflict:
         conflicting_facts = [f for f in ledger.active_facts if f.conflicts_with]
         assert len(conflicting_facts) >= 1
 
-    def test_conflict_blocks_early_stop(self):
-        """Unresolved conflict prevents has_sufficient_coverage."""
-        policy = CoveragePolicy(
-            required_for_early_stop={"growth": 1},
-            min_independent_sources=1,
-            unresolved_conflicts_block_stop=True,
-        )
-        wm = WorkingMemory(coverage_policy=policy)
-        wm.add_fact("Revenue grew 30%", category="growth", source_ids=["S1"], evidence_quality="high",
-                     subject="Revenue", predicate="growth_rate", value=30, period="2025")
-
-        # Inject conflict manually
-        conflict = MemoryFact(
-            text="Revenue decreased 10%",
-            primary_category="growth",
-            evidence_quality="high",
-            source_ids=["S2"],
-            conflicts_with=[wm.facts[0].fact_id],
-            status="active",
-            subject="Revenue",
-            predicate="growth_rate",
-            value=-10,
-            period="2025",
-        )
-        wm.facts[0].conflicts_with = [conflict.fact_id]
-        wm.facts.append(conflict)
-
-        assert len(wm.unresolved_conflicts) > 0
-        assert not wm.has_sufficient_coverage()
-
     def test_equal_quality_conflict_not_invalidated(self):
         """Two high-quality contradictory facts → CONFLICT, not INVALIDATE."""
         reconciler = FactReconciler()
@@ -557,41 +521,11 @@ class TestSummaryTokenBudget:
 
         # We call _generate_summary which calls _enforce_token_budget
         # Simulate by calling _enforce_token_budget directly
-        result = mgr._enforce_token_budget(
+        result, _usage = mgr._enforce_token_budget(
             "x" * 1000, mock_model, "", ""
         )
         tokens = mgr.token_counter(result)
         assert tokens <= 10, f"Expected <=10 tokens, got {tokens}"
-
-
-# ===========================================================================
-# Scenario 9: SearchDigest token budget
-# ===========================================================================
-
-
-class TestSearchDigestTokenBudget:
-    def test_digest_stays_within_budget(self):
-        """SearchDigest with max_tokens=50 must not exceed it."""
-        builder = SearchDigestBuilder(
-            token_counter=lambda x: max(1, len(str(x)) // 4),
-            max_tokens=50,
-            max_snippets=5,
-            max_claims=5,
-        )
-        # 5 very long results
-        results = [
-            {"url": f"https://example.com/{i}", "title": f"Very long title number {i} with extra words " * 3,
-             "content": f"Extremely long content piece number {i} with many words " * 10}
-            for i in range(5)
-        ]
-        digest = builder.build(query="test query", raw_results=results)
-        assert digest.tokens_after <= 50, f"Expected <=50 tokens, got {digest.tokens_after}"
-
-    def test_digest_empty_results(self):
-        """Empty results produce tokens_after <= max_tokens."""
-        builder = SearchDigestBuilder(max_tokens=100)
-        digest = builder.build(query="test", raw_results=[])
-        assert digest.tokens_after <= 100
 
 
 # ===========================================================================
@@ -684,11 +618,10 @@ class TestContextAssemblyNoMutation:
 
 class TestEarlyStopConditions:
     def test_all_conditions_met_allows_stop(self):
-        """Coverage + sources + no conflicts → stop."""
+        """Coverage + sources → stop."""
         policy = CoveragePolicy(
             required_for_early_stop={"growth": 1, "risk": 1},
             min_independent_sources=2,
-            unresolved_conflicts_block_stop=True,
         )
         wm = WorkingMemory(coverage_policy=policy)
         wm.add_fact("Growth fact", category="growth", source_ids=["S1"], evidence_quality="high")
@@ -700,7 +633,6 @@ class TestEarlyStopConditions:
         policy = CoveragePolicy(
             required_for_early_stop={"growth": 1, "risk": 1, "financials": 1},
             min_independent_sources=1,
-            unresolved_conflicts_block_stop=False,
         )
         wm = WorkingMemory(coverage_policy=policy)
         wm.add_fact("Growth fact", category="growth", source_ids=["S1"], evidence_quality="high")
@@ -711,7 +643,6 @@ class TestEarlyStopConditions:
         policy = CoveragePolicy(
             required_for_early_stop={"growth": 1},
             min_independent_sources=3,
-            unresolved_conflicts_block_stop=False,
         )
         wm = WorkingMemory(coverage_policy=policy)
         for i in range(5):
@@ -725,7 +656,6 @@ class TestEarlyStopConditions:
             required_for_early_stop={"growth": 1},
             minimum_evidence_quality="medium",
             min_independent_sources=1,
-            unresolved_conflicts_block_stop=False,
         )
         wm = WorkingMemory(coverage_policy=policy)
         wm.add_fact("Low quality fact", category="growth", source_ids=["S1"], evidence_quality="low")
@@ -767,35 +697,6 @@ class TestPeriodOnlyMatchingRemoved:
             f"Expected ADD (different predicates should not match), "
             f"got {[o['operation'] for o in ledger.operations]}"
         )
-
-
-# ===========================================================================
-# ADD always generates new UUID
-# ===========================================================================
-
-
-class TestADDGeneratesNewUUID:
-    def test_add_ignores_model_id(self):
-        """Model returns ADD with id="0" mapping to existing → still new UUID."""
-        reconciler = FactReconciler()
-        existing = MemoryFact(fact_id="existing-123", text="Already here")
-
-        model_output = [
-            {"id": "0", "text": "New fact", "event": "ADD"},
-        ]
-        id_mapping = {"0": "existing-123"}  # tries to map to existing
-
-        ledger = reconciler.reconcile_from_model_output(model_output, [existing], id_mapping=id_mapping)
-        # ADD must create a NEW fact_id, not use "existing-123"
-        add_ops = [op for op in ledger.operations if op["operation"] == "ADD"]
-        assert len(add_ops) == 1
-        new_fact_id = add_ops[0]["fact_id"]
-        assert new_fact_id != "existing-123", "ADD must not overwrite existing fact ID"
-
-        # Existing fact untouched
-        assert "existing-123" in {f.fact_id for f in ledger.all_facts}
-        existing_fact = next(f for f in ledger.all_facts if f.fact_id == "existing-123")
-        assert existing_fact.text == "Already here"
 
 
 # ===========================================================================

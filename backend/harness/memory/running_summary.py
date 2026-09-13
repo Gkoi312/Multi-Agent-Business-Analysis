@@ -13,6 +13,7 @@ import hashlib
 from typing import Any, Callable
 
 from harness.models.memory import RunningSummary, _stable_message_id
+from harness.utils.llm_json import _extract_usage
 
 
 # ===========================================================================
@@ -50,11 +51,14 @@ class RunningSummaryManager:
         running_summary: RunningSummary | None = None,
         model: Any,
         summary_prompt: str = "",
-    ) -> RunningSummary | None:
+    ) -> tuple[RunningSummary | None, dict[str, int]]:
         """Compute an incremental summary for messages, updating a running cursor.
 
-        Returns ``None`` if no new messages need summarization, or a new
-        ``RunningSummary`` with updated cursor tracking.
+        Returns ``(None, zero_usage)`` if no new messages need summarization,
+        or ``(new_running_summary, usage)`` — ``usage`` is the real token
+        cost of the LLM call(s) this invocation made (zeroed fields if none
+        were made), so callers can account for compaction's own cost instead
+        of it silently vanishing from token totals.
 
         Parameters
         ----------
@@ -75,18 +79,23 @@ class RunningSummaryManager:
         new_messages = self._find_new_messages(messages, running_summary)
 
         if not new_messages:
-            return None
+            return None, self._zero_usage()
 
-        # Ensure last message isn't an orphaned AI tool-call without responses
-        new_messages = self._complete_tool_call_boundary(new_messages, messages)
+        # NOTE: no domain currently does LangChain-style tool-calling inside
+        # state["messages"] (search runs as a plain function call — see
+        # domains/due_diligence/interview.py's _search_web), so there's no
+        # AIMessage(tool_calls=...) / ToolMessage boundary to protect here.
+        # If a future domain adds a ReAct-style tool-calling agent, this
+        # method will need to ensure new_messages doesn't end on an AI
+        # tool-call whose ToolMessage responses land just outside the slice.
 
         # Don't summarize too few messages
         if len(new_messages) < 2:
-            return None
+            return None, self._zero_usage()
 
         # Build new summary
         new_text = self._build_summary_block(new_messages)
-        summary_content = self._generate_summary(
+        summary_content, usage = self._generate_summary(
             model=model,
             existing_summary=running_summary.summary,
             new_text=new_text,
@@ -101,44 +110,7 @@ class RunningSummaryManager:
             summarized_message_ids=running_summary.summarized_message_ids | new_ids,
             last_summarized_message_id=self._get_id(new_messages[-1]),
             version=running_summary.version + 1,
-        )
-
-    async def acompute_new_summary(
-        self,
-        messages: list[Any],
-        *,
-        running_summary: RunningSummary | None = None,
-        model: Any,
-        summary_prompt: str = "",
-    ) -> RunningSummary | None:
-        """Async variant of :meth:`compute_new_summary`."""
-        if running_summary is None:
-            running_summary = RunningSummary()
-
-        new_messages = self._find_new_messages(messages, running_summary)
-        if not new_messages:
-            return None
-
-        new_messages = self._complete_tool_call_boundary(new_messages, messages)
-        if len(new_messages) < 2:
-            return None
-
-        new_text = self._build_summary_block(new_messages)
-        summary_content = await self._agenerate_summary(
-            model=model,
-            existing_summary=running_summary.summary,
-            new_text=new_text,
-            summary_prompt=summary_prompt,
-        )
-
-        new_ids = set(self._get_id(msg) for msg in new_messages)
-
-        return RunningSummary(
-            summary=summary_content,
-            summarized_message_ids=running_summary.summarized_message_ids | new_ids,
-            last_summarized_message_id=self._get_id(new_messages[-1]),
-            version=running_summary.version + 1,
-        )
+        ), usage
 
     # ------------------------------------------------------------------
     # Helpers
@@ -175,43 +147,6 @@ class RunningSummaryManager:
         # Everything AFTER the last summarized message is new
         return list(messages[resume_idx + 1:])
 
-    def _complete_tool_call_boundary(
-        self,
-        new_messages: list[Any],
-        all_messages: list[Any],
-    ) -> list[Any]:
-        """Ensure we don't cut between an AI tool-call and its ToolMessage responses.
-
-        If the last new message is an AI message with tool calls, find all
-        corresponding ToolMessages that appear later in ``all_messages`` and
-        include them.
-        """
-        if not new_messages:
-            return new_messages
-
-        last_new = new_messages[-1]
-        tool_calls = getattr(last_new, "tool_calls", None)
-        if not tool_calls:
-            return new_messages
-
-        # Find the position of last_new in all_messages
-        last_new_id = getattr(last_new, "id", None)
-        new_start = 0
-        if last_new_id:
-            for i, msg in enumerate(all_messages):
-                if getattr(msg, "id", None) == last_new_id:
-                    new_start = i + 1
-                    break
-
-        # Collect ToolMessage responses for the pending tool calls
-        tool_call_ids = {tc.get("id") for tc in tool_calls if tc.get("id")}
-        for msg in all_messages[new_start:]:
-            if hasattr(msg, "tool_call_id") and msg.tool_call_id in tool_call_ids:
-                new_messages.append(msg)
-                tool_call_ids.discard(msg.tool_call_id)
-
-        return new_messages
-
     def _build_summary_block(self, messages: list[Any]) -> str:
         """Format messages as a text block for the summary prompt."""
         lines = []
@@ -229,11 +164,15 @@ class RunningSummaryManager:
         existing_summary: str,
         new_text: str,
         summary_prompt: str,
-    ) -> str:
+    ) -> tuple[str, dict[str, int]]:
         """Call the LLM to generate or extend a summary.
 
         Enforces max_summary_tokens: if the model produces a summary that exceeds
         the budget, attempts to re-compress or falls back to truncation.
+
+        Returns ``(content, usage)`` — ``usage`` sums every ``model.invoke()``
+        call made in service of this one summary (the initial generation plus
+        any re-compression retry).
         """
         if not summary_prompt:
             summary_prompt = (
@@ -260,11 +199,13 @@ class RunningSummaryManager:
         response = model.invoke([HumanMessage(content=prompt)])
         content = getattr(response, "content", str(response))
         content = content.strip()
+        usage = _extract_usage(response)
 
         # Enforce max_summary_tokens
-        content = self._enforce_token_budget(content, model, summary_prompt, existing_summary)
+        content, extra_usage = self._enforce_token_budget(content, model, summary_prompt, existing_summary)
+        usage = self._sum_usage(usage, extra_usage)
 
-        return content
+        return content, usage
 
     def _enforce_token_budget(
         self,
@@ -272,15 +213,16 @@ class RunningSummaryManager:
         model: Any,
         summary_prompt: str,
         existing_summary: str,
-    ) -> str:
+    ) -> tuple[str, dict[str, int]]:
         """Ensure the summary does not exceed max_summary_tokens.
 
         First tries asking the model to compress further, then falls back
-        to hard truncation at token boundary.
+        to hard truncation at token boundary. Returns ``(content, usage)`` —
+        ``usage`` is zeroed unless a re-compression call was actually made.
         """
         actual_tokens = self.token_counter(content)
         if actual_tokens <= self.max_summary_tokens:
-            return content
+            return content, self._zero_usage()
 
         import logging
         logger = logging.getLogger(__name__)
@@ -300,22 +242,23 @@ class RunningSummaryManager:
                 "Return ONLY the compressed summary text."
             )
             response = model.invoke([HumanMessage(content=compress_prompt)])
+            usage = _extract_usage(response)
             compressed = getattr(response, "content", str(response)).strip()
             compressed_tokens = self.token_counter(compressed)
 
             if compressed_tokens <= self.max_summary_tokens:
-                return compressed
+                return compressed, usage
 
             logger.warning(
                 f"Re-compression still over budget: {compressed_tokens} > {self.max_summary_tokens}. "
                 "Falling back to truncation."
             )
             # Fallback: truncate to token boundary
-            return self._truncate_to_token_boundary(compressed)
+            return self._truncate_to_token_boundary(compressed), usage
 
         except Exception:
             logger.warning("Re-compression failed; truncating summary.")
-            return self._truncate_to_token_boundary(content)
+            return self._truncate_to_token_boundary(content), self._zero_usage()
 
     def _truncate_to_token_boundary(self, text: str) -> str:
         """Truncate text to fit within max_summary_tokens at a word boundary."""
@@ -331,49 +274,17 @@ class RunningSummaryManager:
                 return truncated[:last + len(sep)].rstrip() + "…"
         return truncated.rstrip() + "…"
 
-    async def _agenerate_summary(
-        self,
-        model: Any,
-        existing_summary: str,
-        new_text: str,
-        summary_prompt: str,
-    ) -> str:
-        """Async variant of :meth:`_generate_summary`."""
-        if not summary_prompt:
-            summary_prompt = (
-                "You are a context compressor. Summarize the key facts, decisions, "
-                "and findings from the following conversation. Be concise but complete.\n\n"
-            )
-
-        if existing_summary:
-            prompt = (
-                f"{summary_prompt}\n\n"
-                f"## Existing Summary\n{existing_summary}\n\n"
-                f"## New Messages to Incorporate\n{new_text}\n\n"
-                "Extend the existing summary by incorporating the new messages above. "
-                "Return ONLY the updated summary text (no JSON, no markdown fences)."
-            )
-        else:
-            prompt = (
-                f"{summary_prompt}\n\n"
-                f"## Messages to Summarize\n{new_text}\n\n"
-                "Return ONLY the summary text (no JSON, no markdown fences)."
-            )
-
-        from langchain_core.messages import HumanMessage
-        response = await model.ainvoke([HumanMessage(content=prompt)])
-        content = getattr(response, "content", str(response)).strip()
-
-        # Enforce max_summary_tokens (sync fallback — model.ainvoke already resolved)
-        actual_tokens = self.token_counter(content)
-        if actual_tokens > self.max_summary_tokens:
-            content = self._truncate_to_token_boundary(content)
-
-        return content
-
     # ------------------------------------------------------------------
     # Static helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _zero_usage() -> dict[str, int]:
+        return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+    @staticmethod
+    def _sum_usage(a: dict[str, int], b: dict[str, int]) -> dict[str, int]:
+        return {k: a.get(k, 0) + b.get(k, 0) for k in ("prompt_tokens", "completion_tokens", "total_tokens")}
 
     @staticmethod
     def _get_id(msg: Any) -> str:

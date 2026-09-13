@@ -97,10 +97,10 @@ class HistoryCompactor:
         messages: list[Any],
         *,
         running_summary: RunningSummary | None = None,
-    ) -> tuple[list[Any], RunningSummary | None]:
+    ) -> tuple[list[Any], RunningSummary | None, dict[str, int]]:
         """Compact older messages into a summary.
 
-        Returns ``(projected_messages, updated_running_summary)``.
+        Returns ``(projected_messages, updated_running_summary, usage)``.
 
         The projected messages consist of:
         1. A single ``HumanMessage`` with the summary (if any summary exists).
@@ -108,6 +108,10 @@ class HistoryCompactor:
 
         IMPORTANT: Only OLD messages are summarized. Recent messages within
         ``keep_recent_tokens`` are kept as raw. This avoids summary/raw duplication.
+
+        ``usage`` is the real token cost of the summarization LLM call(s) made
+        this invocation (zeroed if none were made) — compaction is not free,
+        and callers should account for it rather than let it go unmeasured.
 
         Parameters
         ----------
@@ -118,10 +122,12 @@ class HistoryCompactor:
 
         Returns
         -------
-        tuple[list[Any], RunningSummary | None]
+        tuple[list[Any], RunningSummary | None, dict[str, int]]
         """
+        zero_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
         if not self.model:
-            return list(messages), running_summary
+            return list(messages), running_summary, zero_usage
 
         # Split: old messages (to summarize) vs recent (to keep raw)
         old_messages, recent_messages = self._split_old_recent(messages)
@@ -129,11 +135,11 @@ class HistoryCompactor:
         if not old_messages:
             # Nothing old enough to compact
             if running_summary and running_summary.summary:
-                return self._project_with_summary(recent_messages, running_summary), running_summary
-            return list(messages), running_summary
+                return self._project_with_summary(recent_messages, running_summary), running_summary, zero_usage
+            return list(messages), running_summary, zero_usage
 
         # Only summarize the OLD messages
-        new_summary = self._summary_mgr.compute_new_summary(
+        new_summary, usage = self._summary_mgr.compute_new_summary(
             old_messages,
             running_summary=running_summary,
             model=self.model,
@@ -143,40 +149,9 @@ class HistoryCompactor:
         effective_summary = new_summary if new_summary is not None else running_summary
 
         if effective_summary is None or not effective_summary.summary:
-            return list(messages), running_summary
+            return list(messages), running_summary, usage
 
-        return self._project_with_summary(recent_messages, effective_summary), effective_summary
-
-    async def acompact_history(
-        self,
-        messages: list[Any],
-        *,
-        running_summary: RunningSummary | None = None,
-    ) -> tuple[list[Any], RunningSummary | None]:
-        """Async variant of :meth:`compact_history`."""
-        if not self.model:
-            return list(messages), running_summary
-
-        old_messages, recent_messages = self._split_old_recent(messages)
-
-        if not old_messages:
-            if running_summary and running_summary.summary:
-                return self._project_with_summary(recent_messages, running_summary), running_summary
-            return list(messages), running_summary
-
-        new_summary = await self._summary_mgr.acompute_new_summary(
-            old_messages,
-            running_summary=running_summary,
-            model=self.model,
-            summary_prompt=self.summary_prompt,
-        )
-
-        effective_summary = new_summary if new_summary is not None else running_summary
-
-        if effective_summary is None or not effective_summary.summary:
-            return list(messages), running_summary
-
-        return self._project_with_summary(recent_messages, effective_summary), effective_summary
+        return self._project_with_summary(recent_messages, effective_summary), effective_summary, usage
 
     # ------------------------------------------------------------------
     # Helpers
@@ -185,62 +160,44 @@ class HistoryCompactor:
     def _split_old_recent(self, messages: list[Any]) -> tuple[list[Any], list[Any]]:
         """Split messages into OLD (to summarize) and RECENT (to keep raw).
 
-        The boundary respects:
-        - Human/AI Q&A round boundaries
-        - AI tool call + parallel ToolMessage groups
-        - Tool results followed by AI answer
+        Every round in this harness is a fixed 2-message unit — a question
+        appended by the ask node, then its answer appended by the answer
+        node (see domains/due_diligence/interview.py: ask_question and
+        generate_answer each append exactly one message, with no
+        HumanMessage in between). The boundary is aligned to an even index
+        so a round is never split between its question and its answer.
 
-        Never cuts in the middle of a coherent group.
+        NOTE: no domain currently does LangChain-style tool-calling inside
+        state["messages"] (search runs as a plain function call, not a tool
+        call — see domains/due_diligence/interview.py's _search_web). If a
+        future domain adds a ReAct-style tool-calling agent, this method
+        will need boundary protection for tool_call_id <-> ToolMessage
+        pairs before being reused there.
         """
         max_tokens = self.policy.keep_recent_tokens
 
-        # Walk backwards, accumulating recent messages
+        # Walk backwards, accumulating recent messages within budget
         recent: list[Any] = []
         total = 0
-        pending_tool_ids: set[str] = set()
-
-        # Phase 1: collect recent messages fit within token budget
         for msg in reversed(messages):
             tokens = self.token_counter.count_message(msg)
             if total + tokens > max_tokens and recent:
                 break
-
-            # Check if this is a ToolMessage — we need to include its AI tool_call
-            tc_id = getattr(msg, "tool_call_id", None)
-            if tc_id:
-                pending_tool_ids.add(str(tc_id))
-
             recent.insert(0, msg)
             total += tokens
 
-        # Phase 2: if we have pending tool IDs, walk further back to include
-        # the originating AI message(s)
-        if pending_tool_ids:
-            cut_idx = messages.index(recent[0]) if recent else len(messages)
-            for i in range(cut_idx - 1, -1, -1):
-                msg = messages[i]
-                tool_calls = getattr(msg, "tool_calls", None)
-                if not tool_calls:
-                    continue
-                ai_ids = {str(tc.get("id", "")) for tc in tool_calls if tc.get("id")}
-                if pending_tool_ids & ai_ids:
-                    # Include this AI message in recent
-                    recent.insert(0, msg)
-                    for tc_id in ai_ids:
-                        pending_tool_ids.discard(tc_id)
-                    # Recurse: this AI message might be a response to a Human question
-                    # — include the Human question too for round completeness
-                    if i > 0 and getattr(messages[i - 1], "type", None) == "human":
-                        recent.insert(0, messages[i - 1])
+        if not recent:
+            return list(messages), []
 
-        # Everything before recent is OLD
-        if recent:
-            first_recent_idx = messages.index(recent[0])
-            old = list(messages[:first_recent_idx])
-        else:
-            old = list(messages)
-            recent = []
+        first_recent_idx = messages.index(recent[0])
 
+        # Align to a round boundary: an odd cut index means we've split a
+        # question from its answer, so pull the question in too.
+        if first_recent_idx % 2 == 1:
+            first_recent_idx -= 1
+            recent.insert(0, messages[first_recent_idx])
+
+        old = list(messages[:first_recent_idx])
         return old, recent
 
     def _project_with_summary(
@@ -263,15 +220,3 @@ class HistoryCompactor:
         )
 
         return [summary_msg] + list(recent_messages)
-
-    def _keep_recent(self, messages: list[Any], max_tokens: int) -> list[Any]:
-        """Select the most recent messages that fit within ``max_tokens``."""
-        kept: list[Any] = []
-        total = 0
-        for msg in reversed(messages):
-            tokens = self.token_counter.count_message(msg)
-            if total + tokens > max_tokens and kept:
-                break
-            kept.insert(0, msg)
-            total += tokens
-        return kept

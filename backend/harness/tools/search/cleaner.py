@@ -57,7 +57,16 @@ _SEO_FILLER_PHRASES: list[str] = [
     "免责声明", "广告", "推广",
 ]
 
-_SPAM_DOMAIN_PATTERNS: list[str] = []
+_SPAM_DOMAIN_PATTERNS: list[str] = [
+    # URL path/query fragments that strongly signal a marketing/affiliate/deal
+    # page rather than substantive content — same "commercial intent" signal
+    # _SEO_FILLER_PHRASES targets in body text, applied to the URL instead.
+    "coupon", "promo-code", "promo_code", "cheap-deals", "best-price",
+    "buy-now", "clickbait", "affiliate=", "ref=deal", "discount-code",
+    # Known low-quality content-farm domains (pre-LLM-era SEO spam mills —
+    # still show up in search results for generic business/tech queries).
+    "ezinearticles.com", "articlesbase.com", "hubpages.com/@",
+]
 
 # Entity regex used by QualityScoreStage (fact_density). More patterns defined later
 # for StructureFactsStage; this one is a simpler aggregate for counting.
@@ -168,7 +177,7 @@ def _bigram_jaccard(a: str, b: str) -> float:
 # ----- Content fingerprint ---------------------------------------------------
 
 
-def _content_fingerprint(text: str, n: int = 5) -> str:
+def _content_fingerprint(text: str, n: int = 30) -> str:
     """Compute a lightweight MinHash-ish fingerprint for near-duplicate detection."""
     if not text:
         return ""
@@ -449,7 +458,18 @@ class RelevanceScoreStage(ProcessingStage):
     def _compute_keyword_score(self, doc: SearchDocument, target: str, focus: str) -> float:
         title_lower = (doc.title or "").lower()
         content_lower = (doc.clean_content or doc.raw_content or "").lower()
-        words = content_lower.split()
+        # CJK text has no whitespace between words, so content_lower.split()
+        # would collapse an entire Chinese paragraph into a single "word" and
+        # silently skip the sliding-window density calculation below. Tokenize
+        # by character for CJK-heavy content instead (same threshold/approach
+        # as _bigram_jaccard and _content_fingerprint).
+        cjk_count = sum(1 for ch in content_lower if '一' <= ch <= '鿿' or '㐀' <= ch <= '䶿')
+        if cjk_count > len(content_lower) * 0.3:
+            words = [ch for ch in content_lower if ch.strip()]
+            joiner = ""
+        else:
+            words = content_lower.split()
+            joiner = " "
         title_score = 0.0
         content_score = 0.0
         focus_score = 0.0
@@ -458,7 +478,7 @@ class RelevanceScoreStage(ProcessingStage):
             if len(words) >= 10:
                 window_size = min(50, len(words))
                 window_hits = sum(1 for i in range(len(words) - window_size + 1)
-                                  if target in " ".join(words[i:i + window_size]))
+                                  if target in joiner.join(words[i:i + window_size]))
                 content_score = min(1.0, (window_hits / max(1, len(words) - window_size + 1)) * 4.0)
             else:
                 content_score = 1.0 if target in content_lower else 0.0
@@ -590,7 +610,14 @@ _NUMBER_RE = re.compile(
 )
 
 _DATE_RE = re.compile(
-    r"\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}\s(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s\d{4}|(?:20\d{2}|Q[1-4]\s?20\d{2}))\b",
+    r"\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}\s(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s\d{4}|(?:20\d{2}|Q[1-4]\s?20\d{2}))\b"
+    # Chinese date formats — no "Oct"-style month abbreviations in Chinese,
+    # so these need their own patterns rather than reusing the English one.
+    r"|\d{4}年\d{1,2}月(?:\d{1,2}日)?"
+    r"|\d{1,2}月\d{1,2}日"
+    # Bare year ("2025年") — must come after the year+month pattern above,
+    # so a full "2025年3月" match wins instead of being truncated to "2025年".
+    r"|\d{4}年",
     re.IGNORECASE,
 )
 

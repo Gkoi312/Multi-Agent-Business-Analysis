@@ -34,12 +34,11 @@ Domain memory you may use:
 {% endif %}
 
 {% if working_memory %}
-Research progress so far (from prior interview rounds):
+Open knowledge gaps to address in this round:
 {{ working_memory }}
 
-IMPORTANT: Use the research progress above to avoid re-asking about topics
-already covered. Focus your next question on the knowledge gaps identified above.
-If all gaps are covered, end with "Thank you so much for your help!"
+Focus your next question on ONE of the gaps above that is most critical for the brief.
+If no gaps remain and you have covered all key areas, end with "Thank you so much for your help!"
 {% endif %}
 
 Introduce yourself with a name that fits your persona, then ask your question.
@@ -56,6 +55,13 @@ Address the interviewee only as "Expert"—do not invent another name for them.
 GENERATE_SEARCH_QUERY = jinja_env.from_string("""
 You will see a dialogue between an analyst and an expert.
 Your goal is to decide WHERE and HOW to search, then produce a query.
+
+{% if skill_card %}
+Use the analyst's bound skill card as the search operating system. Pay special attention to its Search Strategy / 搜索策略, Evidence Hierarchy / 证据层级, preferred sources, avoided sources, and query patterns.
+
+Analyst skill card:
+{{ skill_card }}
+{% endif %}
 
 ## Available search tools — pick source_type accordingly:
 
@@ -88,11 +94,11 @@ Research plan summary:
 {{ assigned_plan }}
 {% endif %}
 
-Output a JSON object with: search_query (string), source_type (one of the values above), site_hints (array of domain strings), freshness_hint ("recent"/"balanced"/"any"), reasoning (one sentence why you chose this source_type).
+Output a JSON object with: search_query (string), source_type (one of the values above), site_hints (array of domain strings), freshness_hint ("recent"/"balanced"/"any"), reasoning (one sentence why you chose this source_type and how it reflects the analyst skill card).
 """)
 
 GENERATE_ANSWERS = jinja_env.from_string("""
-You are an expert being interviewed by an analyst.
+You are an expert being interviewed by an analyst. Convert retrieved evidence through the analyst's lens rather than giving a generic summary.
 
 The analyst's focus:
 {% if goals %}
@@ -104,6 +110,8 @@ The analyst's focus:
 {% if skill_card %}
 Analyst's skill card:
 {{ skill_card }}
+
+Use this skill card to decide what evidence matters, what weak evidence must be downgraded, and what should remain an explicit uncertainty.
 {% endif %}
 
 {% if domain_memory %}
@@ -147,11 +155,12 @@ WRITE_SECTION = jinja_env.from_string("""
 
 [Language]You MUST write the entire memo chapter in **Simplified Chinese (简体中文)**.
 
-[Output structure]Output **one chapter** only, exactly four Markdown levels:
-1. ## Section title — reflects **this analyst's lens** (e.g. "产品与商业化", "技术壁垒"). Do **not** use full-report titles like "公司概览" or "业务拆解".
-2. ### 关键发现 — verifiable facts and judgments; inline citations **[1][2]…** (section-local numbering from [1], matching "### 信息来源" below).
-3. ### 风险提示 — risk / why it matters / possible impact; you may tag severity (高 / 中 / 低).
-4. ### 信息来源 — only sources actually cited in this section, listed in [1][2]… order.
+[Output structure]Output **one role-specific memo chapter** only.
+- The `##` title must reflect **this analyst's lens** (e.g. "产品与商业化", "技术壁垒"). Do **not** use full-report titles like "公司概览" or "业务拆解".
+- If the skill card defines a `Memo 输出契约` or output contract, follow that contract.
+- Always include `### 关键发现`, `### 风险提示`, and `### 信息来源` even when the skill card adds more subsections.
+- Use inline citations **[1][2]…** with section-local numbering from [1], matching `### 信息来源`.
+- `### 信息来源` must list only sources actually cited in this section.
 
 [Length]About 500–800 words; do not name the interviewer.
 

@@ -1,0 +1,94 @@
+{
+  "pipeline_name": "search_pipeline_pipe_mixed_001",
+  "total_duration_ms": 0,
+  "total_input_docs": 5,
+  "total_output_docs": 1,
+  "total_reduction_pct": 80.0,
+  "total_dropped": 4,
+  "total_warnings": 4,
+  "stage_count": 9,
+  "survived_docs": 1,
+  "per_stage": [
+    {
+      "stage": "canonicalize_url",
+      "duration_ms": 0,
+      "input_count": 5,
+      "output_count": 5,
+      "reduction_pct": 0.0,
+      "dropped_count": 0,
+      "warning_count": 0
+    },
+    {
+      "stage": "clean_text",
+      "duration_ms": 0,
+      "input_count": 5,
+      "output_count": 4,
+      "reduction_pct": 20.0,
+      "dropped_count": 1,
+      "warning_count": 1
+    },
+    {
+      "stage": "exact_dedup",
+      "duration_ms": 0,
+      "input_count": 4,
+      "output_count": 4,
+      "reduction_pct": 0.0,
+      "dropped_count": 0,
+      "warning_count": 0
+    },
+    {
+      "stage": "near_dedup",
+      "duration_ms": 0,
+      "input_count": 4,
+      "output_count": 4,
+      "reduction_pct": 0.0,
+      "dropped_count": 0,
+      "warning_count": 0
+    },
+    {
+      "stage": "relevance",
+      "duration_ms": 0,
+      "input_count": 4,
+      "output_count": 1,
+      "reduction_pct": 75.0,
+      "dropped_count": 3,
+      "warning_count": 3
+    },
+    {
+      "stage": "quality",
+      "duration_ms": 0,
+      "input_count": 1,
+      "output_count": 1,
+      "reduction_pct": 0.0,
+      "dropped_count": 0,
+      "warning_count": 0
+    },
+    {
+      "stage": "structure",
+      "duration_ms": 0,
+      "input_count": 1,
+      "output_count": 1,
+      "reduction_pct": 0.0,
+      "dropped_count": 0,
+      "warning_count": 0
+    },
+    {
+      "stage": "output_guard",
+      "duration_ms": 0,
+      "input_count": 1,
+      "output_count": 1,
+      "reduction_pct": 0.0,
+      "dropped_count": 0,
+      "warning_count": 0
+    },
+    {
+      "stage": "format",
+      "duration_ms": 0,
+      "input_count": 1,
+      "output_count": 1,
+      "reduction_pct": 0.0,
+      "dropped_count": 0,
+      "warning_count": 0
+    }
+  ]
+}

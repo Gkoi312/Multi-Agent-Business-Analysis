@@ -6,6 +6,13 @@ jinja_env = Environment(loader=BaseLoader())
 REPORT_WRITER_INSTRUCTIONS = jinja_env.from_string("""
 [Role]In the main graph, **merge** parallel analyst memos into **one** decision-ready **main body**.
 
+{% if report_integrator_skill %}
+[Report Integrator Skill]
+Apply this skill card as the governing synthesis style for the final merged report:
+
+{{ report_integrator_skill }}
+{% endif %}
+
 [Brief]
 {% if research_query %}
 {{ research_query }}

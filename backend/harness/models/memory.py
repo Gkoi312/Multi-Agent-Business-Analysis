@@ -85,10 +85,6 @@ class MemoryFact:
     def is_active(self) -> bool:
         return self.status == "active"
 
-    @property
-    def has_conflicts(self) -> bool:
-        return len(self.conflicts_with) > 0
-
     def to_dict(self) -> dict[str, Any]:
         return {
             "fact_id": self.fact_id,
@@ -310,50 +306,6 @@ class SearchDigest:
 
 
 # ===========================================================================
-# ToolPruneResult — result of tool context pruning
-# ===========================================================================
-
-
-@dataclass
-class ToolPruneResult:
-    """Outcome of a tool-context pruning pass."""
-
-    messages_before: int = 0
-    messages_after: int = 0
-    tokens_before: int = 0
-    tokens_after: int = 0
-    tools_cleared: int = 0
-    tokens_reclaimed: int = 0
-
-    @property
-    def reduction_ratio(self) -> float:
-        if self.tokens_before == 0:
-            return 0.0
-        return self.tokens_reclaimed / self.tokens_before
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "messages_before": self.messages_before,
-            "messages_after": self.messages_after,
-            "tokens_before": self.tokens_before,
-            "tokens_after": self.tokens_after,
-            "tools_cleared": self.tools_cleared,
-            "tokens_reclaimed": self.tokens_reclaimed,
-        }
-
-    @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "ToolPruneResult":
-        return cls(
-            messages_before=int(d.get("messages_before", 0) or 0),
-            messages_after=int(d.get("messages_after", 0) or 0),
-            tokens_before=int(d.get("tokens_before", 0) or 0),
-            tokens_after=int(d.get("tokens_after", 0) or 0),
-            tools_cleared=int(d.get("tools_cleared", 0) or 0),
-            tokens_reclaimed=int(d.get("tokens_reclaimed", 0) or 0),
-        )
-
-
-# ===========================================================================
 # CoveragePolicy — explicit strategy object
 # ===========================================================================
 
@@ -382,8 +334,6 @@ class CoveragePolicy:
     })
     minimum_evidence_quality: str = "medium"
     min_independent_sources: int = 2
-    unresolved_questions_block_stop: bool = False
-    unresolved_conflicts_block_stop: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -391,8 +341,6 @@ class CoveragePolicy:
             "required_for_early_stop": dict(self.required_for_early_stop),
             "minimum_evidence_quality": self.minimum_evidence_quality,
             "min_independent_sources": self.min_independent_sources,
-            "unresolved_questions_block_stop": self.unresolved_questions_block_stop,
-            "unresolved_conflicts_block_stop": self.unresolved_conflicts_block_stop,
         }
 
     @classmethod
@@ -406,8 +354,6 @@ class CoveragePolicy:
             },
             minimum_evidence_quality=str(d.get("minimum_evidence_quality", "medium") or "medium"),
             min_independent_sources=int(d.get("min_independent_sources", 2) or 2),
-            unresolved_questions_block_stop=bool(d.get("unresolved_questions_block_stop", False)),
-            unresolved_conflicts_block_stop=bool(d.get("unresolved_conflicts_block_stop", True)),
         )
 
 
@@ -420,8 +366,8 @@ class CoveragePolicy:
 class CompressedTurn:
     """Structured summary of one interview/research round.
 
-    Produced by ``IncrementalCompressor.compress_turn()`` and accumulated
-    in ``InterviewState.compressed_turns``.
+    Produced by ``IncrementalCompressor.compress_completed_turn()`` and
+    accumulated in ``InterviewState.compressed_turns``.
 
     ``facts`` is the primary truth source — ``key_findings`` is a derived
     compatibility property.  For backward compatibility, constructor accepts
@@ -432,7 +378,6 @@ class CompressedTurn:
     question_intent: str = ""
     facts: list[MemoryFact] = field(default_factory=list)
     numbers_mentioned: list[dict[str, Any]] = field(default_factory=list)
-    unanswered: list[str] = field(default_factory=list)
     compression_error: str = ""
 
     def __init__(
@@ -440,7 +385,6 @@ class CompressedTurn:
         question_intent: str = "",
         facts: list[MemoryFact] | None = None,
         numbers_mentioned: list[dict[str, Any]] | None = None,
-        unanswered: list[str] | None = None,
         compression_error: str = "",
         **kwargs: Any,
     ):
@@ -467,7 +411,6 @@ class CompressedTurn:
             self.facts = []
 
         self.numbers_mentioned = list(numbers_mentioned) if numbers_mentioned else []
-        self.unanswered = list(unanswered) if unanswered else []
         self.compression_error = compression_error
 
     # -- derived compatibility accessors -------------------------------
@@ -517,7 +460,6 @@ class CompressedTurn:
             "numbers_mentioned": self.numbers_mentioned,
             "evidence_quality": self.evidence_quality,
             "sources_cited": self.sources_cited,
-            "unanswered": self.unanswered,
             "compression_error": self.compression_error,
         }
 
@@ -543,11 +485,6 @@ class CompressedTurn:
             numbers_mentioned=[
                 dict(n) for n in (d.get("numbers_mentioned") or []) if isinstance(n, dict)
             ],
-            unanswered=[
-                str(u) for u in (d.get("unanswered") or [])
-            ] if isinstance(d.get("unanswered"), list) else (
-                [str(d["unanswered"])] if d.get("unanswered") else []
-            ),
             compression_error=str(d.get("compression_error", "") or ""),
         )
 
@@ -567,8 +504,6 @@ class CompressedTurn:
         parts.append(f"Evidence quality: {self.evidence_quality}")
         if self.compression_error:
             parts.append(f"Compression error: {self.compression_error}")
-        if self.unanswered:
-            parts.append(f"Still unanswered: {'; '.join(self.unanswered)}")
         return "\n".join(parts)
 
 
@@ -596,7 +531,6 @@ class MergedMemory:
     })
     knowledge_gaps: list[str] = field(default_factory=list)
     risk_flags: list[str] = field(default_factory=list)
-    unresolved_questions: list[str] = field(default_factory=list)
     unresolved_conflicts: list[str] = field(default_factory=list)
     used_sources: set[str] = field(default_factory=set)
     facts: list[dict[str, Any]] = field(default_factory=list)
@@ -683,15 +617,11 @@ class MergedMemory:
                 conflict_ids.update(f.conflicts_with)
         unresolved_conflicts = sorted(conflict_ids)
 
-        # Unresolved questions
-        unresolved = list(wm.unresolved_questions) if hasattr(wm, "unresolved_questions") else []
-
         return MergedMemory(
             total_facts=len(active_facts),
             coverage=coverage,
             knowledge_gaps=gaps,
             risk_flags=risk_flags,
-            unresolved_questions=unresolved,
             unresolved_conflicts=unresolved_conflicts,
             used_sources=all_sources,
             facts=[f.to_dict() for f in active_facts],
@@ -708,9 +638,6 @@ class MergedMemory:
                 return False
 
         if p.min_independent_sources > 0 and self.independent_source_count < p.min_independent_sources:
-            return False
-
-        if p.unresolved_conflicts_block_stop and self.unresolved_conflicts:
             return False
 
         return True
@@ -762,35 +689,12 @@ class MergedMemory:
             return "business_model"
         return "other"
 
-    def format(self) -> str:
-        """Format as a short, LLM-readable progress block."""
-        lines = [
-            f"Research progress: {self.total_facts} facts collected "
-            f"across {self.independent_source_count} sources."
-        ]
-        lines.append("\nCoverage per theme:")
-        for cat, count in self.coverage.items():
-            marker = " ✓" if count >= 2 else " ⚠"
-            lines.append(f"  {cat}: {count}{marker}")
-        if self.knowledge_gaps:
-            lines.append(f"\nKnowledge gaps remain: {', '.join(self.knowledge_gaps)}")
-        if self.unresolved_questions:
-            lines.append(f"\nUnresolved questions: {len(self.unresolved_questions)}")
-        if self.unresolved_conflicts:
-            lines.append(f"\nUnresolved conflicts: {len(self.unresolved_conflicts)}")
-        if self.risk_flags:
-            lines.append(f"\nRisk signals flagged: {len(self.risk_flags)}")
-            for rf in self.risk_flags[-3:]:
-                lines.append(f"  - {rf[:120]}")
-        return "\n".join(lines)
-
     def to_dict(self) -> dict[str, Any]:
         return {
             "total_facts": self.total_facts,
             "coverage": dict(self.coverage),
             "knowledge_gaps": list(self.knowledge_gaps),
             "risk_flags": list(self.risk_flags),
-            "unresolved_questions": list(self.unresolved_questions),
             "unresolved_conflicts": list(self.unresolved_conflicts),
             "used_sources": sorted(self.used_sources),
             "facts": list(self.facts),
@@ -807,7 +711,6 @@ class MergedMemory:
             coverage=coverage,
             knowledge_gaps=[str(g) for g in (d.get("knowledge_gaps") or [])],
             risk_flags=[str(r) for r in (d.get("risk_flags") or [])],
-            unresolved_questions=[str(q) for q in (d.get("unresolved_questions") or [])],
             unresolved_conflicts=[str(c) for c in (d.get("unresolved_conflicts") or [])],
             used_sources=set(d.get("used_sources") or []),
             facts=[dict(f) for f in (d.get("facts") or [])],
@@ -841,8 +744,6 @@ class ContextAssemblyResult:
     research_summary: str = ""
     working_memory: str = ""
     recent_raw_messages: list[Any] = field(default_factory=list)
-    current_search_digest: str = ""
-    retrieved_long_term_facts: str = ""
     total_tokens: int = 0
     token_breakdown: dict[str, int] = field(default_factory=dict)
 
@@ -856,8 +757,6 @@ class ContextAssemblyResult:
                 {"type": getattr(m, "type", "unknown"), "content": str(getattr(m, "content", str(m)))[:500]}
                 for m in self.recent_raw_messages[-10:]
             ],
-            "current_search_digest": self.current_search_digest,
-            "retrieved_long_term_facts": self.retrieved_long_term_facts,
             "total_tokens": self.total_tokens,
             "token_breakdown": dict(self.token_breakdown),
         }
@@ -869,8 +768,6 @@ class ContextAssemblyResult:
             execution_summary=str(d.get("execution_summary", "") or ""),
             research_summary=str(d.get("research_summary", "") or ""),
             working_memory=str(d.get("working_memory", "") or ""),
-            current_search_digest=str(d.get("current_search_digest", "") or ""),
-            retrieved_long_term_facts=str(d.get("retrieved_long_term_facts", "") or ""),
             total_tokens=int(d.get("total_tokens", 0) or 0),
             token_breakdown={k: int(v) for k, v in (d.get("token_breakdown") or {}).items()},
         )
@@ -943,25 +840,6 @@ def _extract_json(text: str) -> dict[str, Any]:
     return {}
 
 
-def _extract_json_list(text: str) -> list[dict[str, Any]]:
-    """Try to parse a JSON array from an LLM response."""
-    cleaned = text.strip()
-    if cleaned.startswith("```"):
-        cleaned = re.sub(r"^```(?:json)?\s*\n?", "", cleaned)
-        cleaned = re.sub(r"\n?```\s*$", "", cleaned)
-    cleaned = cleaned.strip()
-    if cleaned.startswith("[") and cleaned.endswith("]"):
-        try:
-            return json.loads(cleaned)
-        except json.JSONDecodeError:
-            pass
-    d = _extract_json(text)
-    for v in d.values():
-        if isinstance(v, list):
-            return v
-    return []
-
-
 def _now_iso() -> str:
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat()
@@ -988,24 +866,20 @@ def _normalize_fact_text(text: str) -> str:
     return " ".join(words)
 
 
-def _facts_are_semantically_equivalent(a: str, b: str) -> bool:
-    """Quick heuristic check for semantic equivalence (token Jaccard).
+def evidence_quality_from_sources(source_ids: Sequence[str]) -> str:
+    """Derive evidence_quality mechanically from independent source count.
 
-    Used only in tests and legacy code — FactReconciler now uses SPDV matching.
+    Shared by the compressor (fresh facts) and the reconciler (facts whose
+    source_ids grow as later rounds corroborate them) so the same fact
+    always gets the same quality label for the same source count, whether
+    it's evaluated on first extraction or after a cross-round merge.
     """
-    na = set(_normalize_fact_text(a).split())
-    nb = set(_normalize_fact_text(b).split())
-    if not na or not nb:
-        return False
-    intersection = len(na & nb)
-    union = len(na | nb)
-    jaccard = intersection / union if union > 0 else 0.0
-    return jaccard >= 0.55
-
-
-def _source_id_for_url(url: str) -> str:
-    """Create a stable source ID from a URL."""
-    return hashlib.md5(url.encode()).hexdigest()[:12]
+    distinct_sources = len(set(source_ids))
+    if distinct_sources >= 2:
+        return "high"
+    if distinct_sources == 1:
+        return "medium"
+    return "low"
 
 
 def _stable_message_id(msg: Any, occurrence_key: str = "") -> str:

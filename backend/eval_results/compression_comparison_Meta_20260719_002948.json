@@ -1,0 +1,255 @@
+{
+  "A": {
+    "label": "A-no-compression",
+    "company": "Meta",
+    "focus": "AI Agent战略",
+    "use_compression": false,
+    "elapsed_sec": 114.2,
+    "elapsed_min": 1.9,
+    "total_llm_tokens": 95312,
+    "by_node": {
+      "report.create_analyst": {
+        "calls": 1,
+        "prompt_tokens": 2369,
+        "completion_tokens": 179,
+        "total_tokens": 2548,
+        "latency_ms": 2131
+      },
+      "interview.ask_question": {
+        "calls": 6,
+        "prompt_tokens": 15636,
+        "completion_tokens": 2935,
+        "total_tokens": 18571,
+        "latency_ms": 36860
+      },
+      "interview.search_query": {
+        "calls": 6,
+        "prompt_tokens": 16493,
+        "completion_tokens": 625,
+        "total_tokens": 17118,
+        "latency_ms": 8880
+      },
+      "interview.generate_answer": {
+        "calls": 6,
+        "prompt_tokens": 20641,
+        "completion_tokens": 6897,
+        "total_tokens": 27538,
+        "latency_ms": 70041
+      },
+      "interview.compress": {
+        "calls": 1,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "latency_ms": 0
+      },
+      "interview.update_memory": {
+        "calls": 1,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "latency_ms": 0
+      },
+      "interview.write_section": {
+        "calls": 2,
+        "prompt_tokens": 18347,
+        "completion_tokens": 1842,
+        "total_tokens": 20189,
+        "latency_ms": 18073
+      },
+      "report.write_conclusion": {
+        "calls": 1,
+        "prompt_tokens": 2133,
+        "completion_tokens": 234,
+        "total_tokens": 2367,
+        "latency_ms": 3248
+      },
+      "report.write_introduction": {
+        "calls": 1,
+        "prompt_tokens": 2133,
+        "completion_tokens": 198,
+        "total_tokens": 2331,
+        "latency_ms": 2711
+      },
+      "report.write_report": {
+        "calls": 1,
+        "prompt_tokens": 2697,
+        "completion_tokens": 1953,
+        "total_tokens": 4650,
+        "latency_ms": 14208
+      }
+    },
+    "ask_q_series": [
+      1085,
+      1711,
+      3538,
+      1125,
+      3023,
+      5154
+    ],
+    "compress_events": [
+      {
+        "node": "interview.compress",
+        "latency_ms": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "facts_extracted": 0,
+        "baseline": true
+      }
+    ],
+    "total_answer_tokens_before": 0,
+    "total_compressed_tokens_after": 0,
+    "compression_ratio": null,
+    "facts_extracted": 0
+  },
+  "B": {
+    "label": "B-with-compression",
+    "company": "Meta",
+    "focus": "AI Agent战略",
+    "use_compression": true,
+    "elapsed_sec": 124.4,
+    "elapsed_min": 2.07,
+    "total_llm_tokens": 110353,
+    "by_node": {
+      "report.create_analyst": {
+        "calls": 1,
+        "prompt_tokens": 2369,
+        "completion_tokens": 191,
+        "total_tokens": 2560,
+        "latency_ms": 2325
+      },
+      "interview.ask_question": {
+        "calls": 6,
+        "prompt_tokens": 18600,
+        "completion_tokens": 1600,
+        "total_tokens": 20200,
+        "latency_ms": 22114
+      },
+      "interview.search_query": {
+        "calls": 6,
+        "prompt_tokens": 16126,
+        "completion_tokens": 621,
+        "total_tokens": 16747,
+        "latency_ms": 8987
+      },
+      "interview.generate_answer": {
+        "calls": 6,
+        "prompt_tokens": 22568,
+        "completion_tokens": 7587,
+        "total_tokens": 30155,
+        "latency_ms": 82653
+      },
+      "interview.compress": {
+        "calls": 6,
+        "prompt_tokens": 12612,
+        "completion_tokens": 1411,
+        "total_tokens": 14023,
+        "latency_ms": 36309
+      },
+      "interview.update_memory": {
+        "calls": 3,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "latency_ms": 5
+      },
+      "interview.write_section": {
+        "calls": 2,
+        "prompt_tokens": 27747,
+        "completion_tokens": 2277,
+        "total_tokens": 30024,
+        "latency_ms": 20759
+      },
+      "report.write_conclusion": {
+        "calls": 1,
+        "prompt_tokens": 2568,
+        "completion_tokens": 287,
+        "total_tokens": 2855,
+        "latency_ms": 4059
+      },
+      "report.write_introduction": {
+        "calls": 1,
+        "prompt_tokens": 2568,
+        "completion_tokens": 219,
+        "total_tokens": 2787,
+        "latency_ms": 3191
+      },
+      "report.write_report": {
+        "calls": 1,
+        "prompt_tokens": 3132,
+        "completion_tokens": 1893,
+        "total_tokens": 5025,
+        "latency_ms": 15066
+      }
+    },
+    "ask_q_series": [
+      1092,
+      3161,
+      5414,
+      1130,
+      3032,
+      4771
+    ],
+    "compress_events": [
+      {
+        "node": "interview.compress",
+        "latency_ms": 6124,
+        "prompt_tokens": 1325,
+        "completion_tokens": 268,
+        "total_tokens": 1593,
+        "compression_ratio": 0.202,
+        "facts_extracted": 8
+      },
+      {
+        "node": "interview.compress",
+        "latency_ms": 6458,
+        "prompt_tokens": 2025,
+        "completion_tokens": 232,
+        "total_tokens": 2257,
+        "compression_ratio": 0.115,
+        "facts_extracted": 8
+      },
+      {
+        "node": "interview.compress",
+        "latency_ms": 5728,
+        "prompt_tokens": 3568,
+        "completion_tokens": 194,
+        "total_tokens": 3762,
+        "compression_ratio": 0.054,
+        "facts_extracted": 8
+      },
+      {
+        "node": "interview.compress",
+        "latency_ms": 6097,
+        "prompt_tokens": 1203,
+        "completion_tokens": 258,
+        "total_tokens": 1461,
+        "compression_ratio": 0.214,
+        "facts_extracted": 8
+      },
+      {
+        "node": "interview.compress",
+        "latency_ms": 5856,
+        "prompt_tokens": 1957,
+        "completion_tokens": 226,
+        "total_tokens": 2183,
+        "compression_ratio": 0.115,
+        "facts_extracted": 8
+      },
+      {
+        "node": "interview.compress",
+        "latency_ms": 6046,
+        "prompt_tokens": 2534,
+        "completion_tokens": 233,
+        "total_tokens": 2767,
+        "compression_ratio": 0.092,
+        "facts_extracted": 8
+      }
+    ],
+    "total_answer_tokens_before": 12612,
+    "total_compressed_tokens_after": 1411,
+    "compression_ratio": 0.112,
+    "facts_extracted": 48
+  }
+}

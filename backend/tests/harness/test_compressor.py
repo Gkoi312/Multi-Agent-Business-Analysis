@@ -5,7 +5,7 @@ history compaction trigger, and context assembly.
 import pytest
 from unittest.mock import MagicMock, patch
 
-from harness.models.memory import CompressedTurn, MergedMemory
+from harness.models.memory import CompressedTurn
 from harness.memory.compressor import IncrementalCompressor
 from harness.memory.context_window import ContextWindowManager
 
@@ -27,15 +27,14 @@ def mock_llm():
         '   "primary_category": "business_model",'
         '   "subject": "Revenue", "predicate": "source",'
         '   "value": "API subscriptions", "unit": "%", "period": "current",'
-        '   "evidence_quality": "high", "confidence": 0.9, "source_ids": ["S1"]},'
+        '   "confidence": 0.9, "source_ids": ["S1"]},'
         '  {"text": "Enterprise licensing is growing at 40% YoY",'
         '   "primary_category": "growth",'
         '   "subject": "Enterprise licensing", "predicate": "growth rate",'
         '   "value": 40, "unit": "%", "period": "YoY",'
-        '   "evidence_quality": "high", "confidence": 0.85, "source_ids": ["S2"]}'
+        '   "confidence": 0.85, "source_ids": ["S2"]}'
         '],'
         '"numbers_mentioned": [{"value": "60", "unit": "%", "context": "API share"}],'
-        '"unanswered": [],'
         '"source_registry": {'
         '  "S1": {"url": "https://example.com/1", "title": "Example 1"},'
         '  "S2": {"url": "https://example.com/2", "title": "Example 2"}'
@@ -90,12 +89,13 @@ class TestCompressCompletedTurn:
         turn = compressor.compress_completed_turn(
             question="What is the revenue model?",
             answer="API subscriptions drive 60% of revenue. Enterprise licensing grows at 40%.",
-            search_summary="Search found revenue breakdown data.",
             source_registry=registry,
         )
         assert isinstance(turn, CompressedTurn)
         assert len(turn.key_findings) > 0
-        assert turn.evidence_quality == "high"
+        # Each fact cites exactly one source -> "medium" (mechanically derived
+        # from source count, not the LLM's own claim).
+        assert turn.evidence_quality == "medium"
         assert len(turn.sources_cited) > 0
 
     def test_invalid_json_fallback_preserves_answer(self, mock_llm_invalid_json):
@@ -105,7 +105,6 @@ class TestCompressCompletedTurn:
         turn = compressor.compress_completed_turn(
             question="What is the revenue?",
             answer="The revenue was $1.6B in 2024 according to official filings.",
-            search_summary="Revenue data found.",
         )
         assert isinstance(turn, CompressedTurn)
         # Fallback should preserve answer content
@@ -154,34 +153,47 @@ class TestCompressCompletedTurn:
         )
         assert turn.compression_error != ""
 
+    def test_numbers_mentioned_scale_shift_filtered(self):
+        """numbers_mentioned entries that are a decimal-shifted duplicate of
+        a fact's value get dropped; unrelated numbers are kept.
 
-# ===========================================================================
-# Multi-turn merge
-# ===========================================================================
+        Reproduces the real bug found in eval_results/compression_results.json
+        (comp_001_tesla_q3): fact text correctly said "$25.47 billion" but
+        numbers_mentioned separately said "254.7" — exactly 10x off.
+        """
+        from harness.models.memory import SourceRecord
 
+        llm = MagicMock()
+        response = MagicMock()
+        response.content = (
+            '{"question_intent": "What is the revenue?",'
+            '"facts": ['
+            '  {"text": "Revenue consensus was $25.47 billion USD",'
+            '   "primary_category": "financials",'
+            '   "subject": "Revenue", "predicate": "consensus",'
+            '   "value": "25.47", "unit": "USD", "period": "Q3 2025",'
+            '   "confidence": 0.9, "source_ids": ["S1"]}'
+            '],'
+            '"numbers_mentioned": ['
+            '  {"value": "254.7", "unit": "USD", "context": "revenue consensus"},'
+            '  {"value": "8", "unit": "%", "context": "YoY growth"}'
+            ']}'
+        )
+        llm.invoke.return_value = response
+        compressor = IncrementalCompressor(llm)
+        registry = {
+            "S1": SourceRecord(source_id="S1", url="https://example.com/1", title="Example 1"),
+        }
 
-class TestMergeCompressed:
-    def test_merge_multiple_turns(self, mock_llm):
-        compressor = IncrementalCompressor(mock_llm)
+        turn = compressor.compress_completed_turn(
+            question="What is the revenue?",
+            answer="Revenue consensus was $25.47 billion USD, up 8% YoY.",
+            source_registry=registry,
+        )
 
-        turns = [
-            CompressedTurn(
-                question_intent="Revenue model?",
-                key_findings=["API is main revenue driver", "Enterprise contributes 40%"],
-                evidence_quality="high",
-                sources_cited=["https://a.com/1"],
-            ),
-            CompressedTurn(
-                question_intent="Growth trajectory?",
-                key_findings=["Services revenue grew 45% YoY", "User base doubled"],
-                evidence_quality="medium",
-                sources_cited=["https://a.com/2"],
-            ),
-        ]
-
-        memory = compressor.merge_compressed(turns)
-        assert memory.total_facts >= 1
-        assert memory.independent_source_count >= 1
+        values = [n["value"] for n in turn.numbers_mentioned]
+        assert "254.7" not in values
+        assert "8" in values
 
 
 # ===========================================================================
@@ -213,48 +225,11 @@ class TestShouldCompactHistory:
 
 
 # ===========================================================================
-# Legacy API compatibility
-# ===========================================================================
-
-
-class TestLegacyAPI:
-    def test_compress_turn_is_alias(self, mock_llm):
-        compressor = IncrementalCompressor(mock_llm)
-        turn = compressor.compress_turn(
-            question="Q?",
-            answer="A.",
-        )
-        assert isinstance(turn, CompressedTurn)
-
-    def test_maybe_compress_is_alias(self, mock_llm):
-        cwm = ContextWindowManager(max_tokens=500, reserved_tokens=100, safe_ratio=0.5)
-        compressor = IncrementalCompressor(mock_llm, window_manager=cwm)
-        from langchain_core.messages import HumanMessage
-        messages = [HumanMessage(content="x" * 1000)]
-        result = compressor.maybe_compress(messages)
-        assert isinstance(result, bool)
-
-
-# ===========================================================================
 # Helpers
 # ===========================================================================
 
 
 class TestHelpers:
-    def test_summarise_context(self):
-        context = [
-            "Result 1: Important data about revenue with detailed breakdown of sources and methodology used in the analysis process",
-            "Result 2: Brief note",
-            "Short",
-        ]
-        summary = IncrementalCompressor.summarise_context(context, max_chars=200)
-        assert isinstance(summary, str)
-        assert len(summary) > 0
-
-    def test_summarise_context_empty(self):
-        summary = IncrementalCompressor.summarise_context([])
-        assert "No search context" in summary
-
     def test_extract_last_question_and_answer(self):
         from langchain_core.messages import HumanMessage, AIMessage
         messages = [
@@ -286,35 +261,6 @@ class TestHelpers:
 
 
 # ===========================================================================
-# SearchDigestBuilder
-# ===========================================================================
-
-
-class TestSearchDigestBuilder:
-    def test_build_from_dicts(self):
-        from harness.memory.search_digest import SearchDigestBuilder
-        builder = SearchDigestBuilder()
-        results = [
-            {"url": "https://a.com/1", "title": "OpenAI Revenue", "content": "OpenAI generated $1.6B in 2024."},
-            {"url": "https://a.com/2", "title": "OpenAI Growth", "content": "Revenue grew 30% YoY."},
-        ]
-        digest = builder.build(query="OpenAI revenue 2025", raw_results=results)
-        assert digest.query == "OpenAI revenue 2025"
-        assert len(digest.source_ids) > 0
-        assert len(digest.evidence_snippets) > 0
-        assert digest.tokens_before > 0
-        assert digest.tokens_after > 0
-
-    def test_build_from_empty(self):
-        from harness.memory.search_digest import SearchDigestBuilder
-        builder = SearchDigestBuilder()
-        digest = builder.build(query="test", raw_results=[])
-        assert digest.tokens_before == 0
-        # tokens_after includes query + format overhead even when empty
-        assert digest.tokens_after >= 0
-
-
-# ===========================================================================
 # ContextAssembler
 # ===========================================================================
 
@@ -330,8 +276,6 @@ class TestContextAssembler:
             research_summary=500,
             working_memory=300,
             recent_messages=1000,
-            search_digest=500,
-            long_term_facts=300,
         )
         assembler = ContextAssembler(token_budget=budget)
         messages = [HumanMessage(content="Test message")]
@@ -347,7 +291,6 @@ class TestContextAssembler:
                 ),
             ],
             working_memory_str="Research so far: 3 facts.",
-            search_digest_str="[Search results]",
         )
 
         assert result.total_tokens > 0
@@ -375,8 +318,6 @@ class TestContextAssembler:
             research_summary=200,
             working_memory=200,
             recent_messages=500,
-            search_digest=200,
-            long_term_facts=200,
         )
         assembler = ContextAssembler(token_budget=budget)
         messages = [HumanMessage(content="short msg")]

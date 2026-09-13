@@ -62,10 +62,6 @@ class TokenBudget:
         Max tokens for working memory content.
     recent_messages : int
         Min tokens to reserve for recent raw messages.
-    search_digest : int
-        Max tokens for the current search digest.
-    long_term_facts : int
-        Max tokens for retrieved long-term facts.
     execution_summary : int
         Max tokens for execution/history summary.
     min_current_turn : int
@@ -76,9 +72,11 @@ class TokenBudget:
     system_prompt: int = 2000
     research_summary: int = 1500
     working_memory: int = 800
-    recent_messages: int = 2000
-    search_digest: int = 1500
-    long_term_facts: int = 500
+    # A single generated answer can reach LLM_MAX_OUTPUT_TOKENS (4096 by
+    # default, see llm_loader.py); 2000 couldn't even hold one full turn.
+    # 12000 comfortably covers ~2 worst-case turns and is still a small
+    # fraction of the real safe_limit for a 128k-context model (~88k).
+    recent_messages: int = 12000
     execution_summary: int = 500
     min_current_turn: int = 200
 
@@ -104,43 +102,18 @@ class CompactionPolicy:
         Don't compact before at least this many turns.
     """
 
-    trigger_tokens: int = 8000
-    keep_recent_tokens: int = 2000
+    # This domain's whole interview is only max_num_turns=3 rounds; worst case
+    # (every answer maxed at LLM_MAX_OUTPUT_TOKENS=4096) is ~13,200 tokens for
+    # the entire raw history. trigger_tokens is set comfortably above that so
+    # compaction — a lossy, extra-LLM-call operation meant for much longer
+    # conversations — doesn't fire partway through a short interview that
+    # would fit in the real context window anyway.
+    trigger_tokens: int = 20000
+    # Matches TokenBudget.recent_messages: large enough to hold ~2 worst-case
+    # turns raw (2000 couldn't even hold one 4096-token answer).
+    keep_recent_tokens: int = 12000
     max_summary_tokens: int = 500
     min_turns_before_compact: int = 2
-
-
-# ===========================================================================
-# Tool pruning policy
-# ===========================================================================
-
-
-@dataclass
-class ToolPruneConfig:
-    """Configuration for tool-context pruning.
-
-    Parameters
-    ----------
-    trigger_tokens : int
-        Total token count that triggers pruning.
-    reclaim_at_least_tokens : int
-        Minimum tokens to reclaim when pruning runs.
-    keep_recent_tool_results : int
-        Number of most-recent ToolMessages to preserve.
-    clear_tool_inputs : bool
-        Whether to also clear the originating AI tool-call args.
-    excluded_tools : list[str]
-        Tool names to exclude from clearing.
-    placeholder : str
-        Placeholder text for cleared tool outputs.
-    """
-
-    trigger_tokens: int = 100_000
-    reclaim_at_least_tokens: int = 0
-    keep_recent_tool_results: int = 3
-    clear_tool_inputs: bool = False
-    excluded_tools: list[str] = field(default_factory=list)
-    placeholder: str = "[cleared]"
 
 
 # ===========================================================================
@@ -160,7 +133,6 @@ class MemoryDomainConfig:
     category_descriptions: dict[str, str] = field(default_factory=dict)
     coverage_policy: Any = None  # CoveragePolicy instance (avoid circular import)
     predicate_aliases: dict[str, set[str]] = field(default_factory=dict)
-    risk_categories: set[str] = field(default_factory=lambda: {"risk"})
     fallback_category: str = "other"
 
     @property
@@ -187,7 +159,6 @@ class MemoryDomainConfig:
             "category_descriptions": dict(self.category_descriptions),
             "coverage_policy": self.coverage_policy.to_dict() if self.coverage_policy else None,
             "predicate_aliases": {k: sorted(v) for k, v in self.predicate_aliases.items()},
-            "risk_categories": sorted(self.risk_categories),
             "fallback_category": self.fallback_category,
         }
 
@@ -200,7 +171,6 @@ class MemoryDomainConfig:
             category_descriptions={str(k): str(v) for k, v in (d.get("category_descriptions") or {}).items()},
             coverage_policy=CP.from_dict(policy_dict) if policy_dict else None,
             predicate_aliases={str(k): set(str(x) for x in v) for k, v in (d.get("predicate_aliases") or {}).items()},
-            risk_categories=set(str(r) for r in (d.get("risk_categories") or set())),
             fallback_category=str(d.get("fallback_category", "other") or "other"),
         )
 

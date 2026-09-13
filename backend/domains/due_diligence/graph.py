@@ -44,11 +44,11 @@ from domains.due_diligence.prompts.report import (
     INTRO_CONCLUSION_INSTRUCTIONS,
     REPORT_WRITER_INSTRUCTIONS,
 )
-from app.utils.model_loader import ModelLoader
-from app.services.skill_registry import SkillRegistry
-from app.logger import GLOBAL_LOGGER
-from app.exception.custom_exception import ResearchAnalystException
-from app.config import GENERATED_REPORT_DIR
+from harness.llm_loader import ModelLoader
+from harness.skill_registry import SkillRegistry
+from harness.observability.logger import GLOBAL_LOGGER
+from harness.exceptions import ResearchAnalystException
+from server.config import GENERATED_REPORT_DIR
 
 
 class AutonomousReportGenerator:
@@ -94,7 +94,8 @@ class AutonomousReportGenerator:
                 "SERPER_API_KEY, TAVILY_API_KEY, or BOCHA_API_KEY in your .env file.",
                 ValueError("No search backend configured"),
             )
-        self.skill_registry = SkillRegistry(Path(__file__).resolve().parents[3] / "skills")
+        # graph.py -> parents[2] is backend/
+        self.skill_registry = SkillRegistry(Path(__file__).resolve().parents[2] / "skills")
         self.logger = GLOBAL_LOGGER.bind(module="AutonomousReportGenerator")
 
     @staticmethod
@@ -107,18 +108,12 @@ class AutonomousReportGenerator:
     def _fallback_domain_memory() -> list[dict[str, Any]]:
         return [
             {
-                "memory_id": "dd-framework-1",
-                "category": "procedure_memory",
                 "title": "Due diligence core framework",
                 "content": "Cover business model, scale/growth, risk, and final recommendations; tie conclusions to evidence.",
-                "tags": ["due_diligence", "framework"],
             },
             {
-                "memory_id": "risk-rubric-1",
-                "category": "reference_memory",
                 "title": "Risk severity rubric",
                 "content": "Classify risks High/Medium/Low using impact scope, likelihood, and reversibility.",
-                "tags": ["risk", "rubric"],
             },
         ]
 
@@ -228,6 +223,25 @@ class AutonomousReportGenerator:
             return cand, False
         return "", bool(cand)
 
+    @staticmethod
+    def _dedupe_analyst_skill_ids(skill_ids: list[str]) -> list[str]:
+        """Clear duplicate skill_id assignments, keeping the first occurrence.
+
+        Input is assumed already existence-validated (see
+        ``_resolve_analyst_skill_id``) — this only handles the case where
+        the same valid skill_id was assigned to more than one analyst.
+        """
+        seen: set[str] = set()
+        result: list[str] = []
+        for sid in skill_ids:
+            if sid and sid in seen:
+                result.append("")
+            else:
+                if sid:
+                    seen.add(sid)
+                result.append(sid)
+        return result
+
     # ----------------------------------------------------------------------
     def create_analyst(self, state: GenerateAnalystsState):
         """Generate analyst personas based on research brief and feedback."""
@@ -255,6 +269,7 @@ class AutonomousReportGenerator:
                 Perspectives,
             )
             enriched_analysts = []
+            resolved_skill_ids = []
             for idx, analyst in enumerate(analysts.analysts):
                 skill_id, cleared_invalid = self._resolve_analyst_skill_id(
                     analyst, skill_bundle
@@ -265,6 +280,20 @@ class AutonomousReportGenerator:
                         analyst_name=analyst.name,
                         index=idx,
                         model_skill_id=analyst.skill_id,
+                    )
+                resolved_skill_ids.append(skill_id)
+
+            # Prompt tells the model never to reuse a skill_id across
+            # analysts, but nothing enforced that — first claimant keeps
+            # the card, later duplicates fall back to freeform.
+            deduped_skill_ids = self._dedupe_analyst_skill_ids(resolved_skill_ids)
+            for idx, (analyst, skill_id) in enumerate(zip(analysts.analysts, deduped_skill_ids)):
+                if skill_id != resolved_skill_ids[idx]:
+                    self.logger.warning(
+                        "Analyst skill_id duplicated across analysts; cleared",
+                        analyst_name=analyst.name,
+                        index=idx,
+                        skill_id=resolved_skill_ids[idx],
                     )
                 enriched_analysts.append(analyst.model_copy(update={"skill_id": skill_id}))
             latency_ms = int((time.perf_counter() - started_at) * 1000)
@@ -351,12 +380,21 @@ class AutonomousReportGenerator:
         """Compile all report sections into unified content."""
         sections = state.get("sections", [])
         research_query = state.get("research_query", "")
+        skill_bundle = state.get("skill_bundle", []) or []
+        report_integrator_skill = ""
+        for skill in skill_bundle:
+            if str(self._value(skill, "id", "") or "").strip() == "report-integrator":
+                report_integrator_skill = str(self._value(skill, "body", "") or "")
+                break
 
         try:
             if not sections:
                 sections = ["No sections were generated; check whether the interview stage completed successfully."]
             self.logger.info("Writing report", research_query=research_query)
-            system_prompt = REPORT_WRITER_INSTRUCTIONS.render(research_query=research_query)
+            system_prompt = REPORT_WRITER_INSTRUCTIONS.render(
+                research_query=research_query,
+                report_integrator_skill=report_integrator_skill,
+            )
             started_at = time.perf_counter()
             report = self.llm.invoke([
                 SystemMessage(content=system_prompt),
@@ -843,6 +881,8 @@ class AutonomousReportGenerator:
 
             def initiate_all_interviews(state: ResearchGraphState):
                 research_query = state.get("research_query", "Unnamed due diligence task")
+                company_name = state.get("company_name", "") or ""
+                focus = state.get("focus", "") or ""
                 analysts = state.get("analysts", [])
                 research_plan = state.get("research_plan")
                 skill_bundle = state.get("skill_bundle", []) or []
@@ -875,6 +915,8 @@ class AutonomousReportGenerator:
                             "messages": [HumanMessage(content=f"Let's discuss this due diligence task: {research_query}", id=str(uuid.uuid4()))],
                             "max_num_turns": max_num_turns,
                             "turn_count": 0,
+                            "company_name": company_name,
+                            "focus": focus,
                             "context": [],
                             "retrieved_sources": [],
                             "router_decisions": [],

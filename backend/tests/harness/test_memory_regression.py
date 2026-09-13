@@ -3,7 +3,6 @@ Regression tests for Round 2 Memory & Context fixes.
 
 Covers:
 1. TokenCounter split interface (count_text/count_message/count_messages)
-2. ToolContextPruner keep logic (<= keep → cleared 0)
 3. Stable message IDs (no index dependency)
 4. HistoryCompactor old/recent split (no summary/raw duplication)
 5. ContextAssembler budget enforcement + ContextBudgetExceeded
@@ -11,7 +10,6 @@ Covers:
 7. CoveragePolicy with independent source count
 8. FactReconciler SPDV matching (CONFLICT vs UPDATE)
 9. FactLedger preserves all facts
-10. Model ID validation (reject unknown IDs)
 11. Dynamic conflict derivation
 12. SearchDigest SourceRecord + tokens_after
 13. Serialization round-trips
@@ -28,7 +26,6 @@ from harness.models.memory import (
     RunningSummary,
     SearchDigest,
     SourceRecord,
-    ToolPruneResult,
     FactLedger,
     CoveragePolicy,
     ContextAssemblyResult,
@@ -38,14 +35,12 @@ from harness.models.memory import (
     _normalize_fact_text,
 )
 from harness.memory.context_window import ContextWindowManager
-from harness.memory.context_editing import ToolContextPruner
-from harness.memory.policies import ToolPruneConfig, TokenBudget, CompactionPolicy
+from harness.memory.policies import TokenBudget, CompactionPolicy
 from harness.memory.fact_reconciler import FactReconciler
 from harness.memory.working_memory import WorkingMemory
 from harness.memory.running_summary import RunningSummaryManager
 from harness.memory.history_compactor import HistoryCompactor
 from harness.memory.context_assembler import ContextAssembler
-from harness.memory.search_digest import SearchDigestBuilder
 
 
 # ===========================================================================
@@ -100,75 +95,6 @@ class TestTokenCounter:
         # Must not throw TypeError
         result = compactor.should_compact(messages, turn_count=3)
         assert isinstance(result, bool)
-
-
-# ===========================================================================
-# 2. ToolContextPruner keep logic
-# ===========================================================================
-
-
-class TestToolPrunerKeepLogic:
-    def test_2_tool_messages_keep_3_clears_0(self):
-        """2 tool messages + keep 3 → cleared 0 (len <= keep, return empty candidates)."""
-        from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-
-        config = ToolPruneConfig(trigger_tokens=10, keep_recent_tool_results=3)
-        pruner = ToolContextPruner(config=config, token_counter=_fake_token_counter)
-
-        messages = [
-            HumanMessage(content="query"),
-            AIMessage(content="ok", tool_calls=[{"id": "tc1", "name": "search", "args": {}}]),
-            ToolMessage(content="x" * 1000, tool_call_id="tc1", name="search"),
-            AIMessage(content="ok", tool_calls=[{"id": "tc2", "name": "search", "args": {}}]),
-            ToolMessage(content="x" * 1000, tool_call_id="tc2", name="search"),
-        ]
-
-        _, result = pruner.prune(messages)
-        assert result.tools_cleared == 0, f"Expected 0, got {result.tools_cleared}"
-
-    def test_3_tool_messages_keep_3_clears_0(self):
-        """3 tool messages + keep 3 → cleared 0."""
-        from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-
-        config = ToolPruneConfig(trigger_tokens=10, keep_recent_tool_results=3)
-        pruner = ToolContextPruner(config=config, token_counter=_fake_token_counter)
-
-        messages = [
-            HumanMessage(content="query"),
-            AIMessage(content="ok", tool_calls=[{"id": "tc1", "name": "search", "args": {}}]),
-            ToolMessage(content="x" * 1000, tool_call_id="tc1", name="search"),
-            AIMessage(content="ok", tool_calls=[{"id": "tc2", "name": "search", "args": {}}]),
-            ToolMessage(content="x" * 1000, tool_call_id="tc2", name="search"),
-            AIMessage(content="ok", tool_calls=[{"id": "tc3", "name": "search", "args": {}}]),
-            ToolMessage(content="x" * 1000, tool_call_id="tc3", name="search"),
-        ]
-
-        _, result = pruner.prune(messages)
-        assert result.tools_cleared == 0, f"Expected 0, got {result.tools_cleared}"
-
-    def test_5_tool_messages_keep_3_clears_2(self):
-        """5 tool messages + keep 3 → cleared 2 (clear 2 oldest, keep 3 newest)."""
-        from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-
-        config = ToolPruneConfig(trigger_tokens=10, keep_recent_tool_results=3)
-        pruner = ToolContextPruner(config=config, token_counter=_fake_token_counter)
-
-        messages = [
-            HumanMessage(content="query"),
-            AIMessage(content="ok", tool_calls=[{"id": "tc1", "name": "search", "args": {}}]),
-            ToolMessage(content="x" * 1000, tool_call_id="tc1", name="search"),
-            AIMessage(content="ok", tool_calls=[{"id": "tc2", "name": "search", "args": {}}]),
-            ToolMessage(content="x" * 1000, tool_call_id="tc2", name="search"),
-            AIMessage(content="ok", tool_calls=[{"id": "tc3", "name": "search", "args": {}}]),
-            ToolMessage(content="x" * 1000, tool_call_id="tc3", name="search"),
-            AIMessage(content="ok", tool_calls=[{"id": "tc4", "name": "search", "args": {}}]),
-            ToolMessage(content="x" * 1000, tool_call_id="tc4", name="search"),
-            AIMessage(content="ok", tool_calls=[{"id": "tc5", "name": "search", "args": {}}]),
-            ToolMessage(content="x" * 1000, tool_call_id="tc5", name="search"),
-        ]
-
-        _, result = pruner.prune(messages)
-        assert result.tools_cleared == 2, f"Expected 2, got {result.tools_cleared}"
 
 
 # ===========================================================================
@@ -245,7 +171,7 @@ class TestContextAssemblerBudget:
 
         budget = TokenBudget(
             system_prompt=500, research_summary=500, working_memory=500,
-            recent_messages=1000, search_digest=500, long_term_facts=500,
+            recent_messages=1000,
         )
         assembler = ContextAssembler(token_budget=budget)
         result = assembler.assemble(
@@ -262,7 +188,7 @@ class TestContextAssemblerBudget:
         # safe_limit = (200-50)*0.6 = 90
         budget = TokenBudget(
             system_prompt=50, research_summary=20, working_memory=20,
-            recent_messages=80, search_digest=20, long_term_facts=20,
+            recent_messages=80,
         )
         assembler = ContextAssembler(token_budget=budget, window_mgr=cwm)
 
@@ -300,6 +226,51 @@ class TestContextAssemblerBudget:
         cwm = ContextWindowManager(max_tokens=1000, reserved_tokens=100, safe_ratio=0.5)
         assert cwm.safe_limit == 450
         assert isinstance(cwm.safe_limit, int)
+
+    def test_summarized_messages_excluded_from_recent(self):
+        """Messages already folded into execution_summary must not also
+        appear in recent_raw_messages — regression for the compression A/B
+        test showing compaction was pure overhead (see
+        compression_comparison_*.json: enabling compression made every node
+        MORE expensive, never less, because summarized old messages were
+        never dropped from the raw-message projection).
+        """
+        from langchain_core.messages import HumanMessage, AIMessage
+
+        old_q = HumanMessage(content="old question", id="q1")
+        old_a = AIMessage(content="old answer", id="a1")
+        recent_q = HumanMessage(content="recent question", id="q2")
+        recent_a = AIMessage(content="recent answer", id="a2")
+
+        assembler = ContextAssembler(token_budget=TokenBudget(
+            system_prompt=500, research_summary=500, working_memory=500,
+            execution_summary=500, recent_messages=1000,
+        ))
+        result = assembler.assemble(
+            messages=[old_q, old_a, recent_q, recent_a],
+            system_prompt="You are helpful.",
+            execution_summary="Summary of the old exchange.",
+            summarized_message_ids={"q1", "a1"},
+        )
+
+        recent_ids = {m.id for m in result.recent_raw_messages}
+        assert recent_ids == {"q2", "a2"}, (
+            f"summarized messages q1/a1 leaked into recent_raw_messages: {recent_ids}"
+        )
+
+    def test_no_summarized_ids_keeps_all_messages(self):
+        """Without a running summary, nothing should be filtered — this is
+        the baseline (uncompacted) path and must behave exactly as before.
+        """
+        from langchain_core.messages import HumanMessage
+
+        assembler = ContextAssembler(token_budget=TokenBudget(
+            system_prompt=500, research_summary=500, working_memory=500,
+            recent_messages=1000,
+        ))
+        messages = [HumanMessage(content="a", id="1"), HumanMessage(content="b", id="2")]
+        result = assembler.assemble(messages=messages, system_prompt="hi")
+        assert {m.id for m in result.recent_raw_messages} == {"1", "2"}
 
 
 # ===========================================================================
@@ -360,7 +331,6 @@ class TestCompressedTurnFacts:
             question_intent="How much revenue?",
             facts=facts,
             numbers_mentioned=[{"value": "1.6", "unit": "billion USD", "context": "annual revenue"}],
-            unanswered=["Profit data not available"],
         )
         d = turn.to_dict()
         turn2 = CompressedTurn.from_dict(d)
@@ -421,32 +391,6 @@ class TestCoveragePolicy:
         wm = WorkingMemory(coverage_policy=policy)
         wm.add_fact("Growth fact", category="growth", evidence_quality="low", source_ids=["S1"])
         # Not sufficient — low quality doesn't count
-        assert not wm.has_sufficient_coverage()
-
-    def test_unresolved_conflict_blocks_stop(self):
-        """Unresolved conflicts prevent early stop when policy says so."""
-        policy = CoveragePolicy(
-            required_for_early_stop={"growth": 1, "risk": 1},
-            unresolved_conflicts_block_stop=True,
-            min_independent_sources=1,
-        )
-        wm = WorkingMemory(coverage_policy=policy)
-        wm.add_fact("Growth fact", category="growth", source_ids=["S1"], evidence_quality="high")
-        wm.add_fact("Risk fact different", category="risk", source_ids=["S1"], evidence_quality="high")
-
-        # Manually simulate conflict
-        conflict_fact = MemoryFact(
-            text="Contradictory growth data",
-            primary_category="growth",
-            evidence_quality="high",
-            source_ids=["S2"],
-            conflicts_with=[wm.facts[0].fact_id],
-            status="active",
-        )
-        wm.facts[0].conflicts_with = [conflict_fact.fact_id]
-        wm.facts.append(conflict_fact)
-
-        assert len(wm.unresolved_conflicts) > 0
         assert not wm.has_sufficient_coverage()
 
     def test_coverage_policy_round_trip(self):
@@ -662,74 +606,6 @@ class TestFactLedger:
 
 
 # ===========================================================================
-# 9. Model ID validation (reject unknown IDs)
-# ===========================================================================
-
-
-class TestModelIDValidation:
-    def test_update_unknown_id_rejected(self):
-        """UPDATE on non-existent target ID → rejected, not fallback to ADD."""
-        reconciler = FactReconciler()
-        existing = MemoryFact(fact_id="real-1", text="Known fact")
-
-        model_output = [
-            {"id": "99", "text": "Attempted update", "event": "UPDATE", "old_memory": ""},
-        ]
-        id_mapping = {}  # "99" not in mapping
-
-        ledger = reconciler.reconcile_from_model_output(
-            model_output, [existing], id_mapping=id_mapping
-        )
-        # No ADD should happen for UPDATE with unknown target
-        update_ops = [op for op in ledger.operations if op["operation"] == "UPDATE"]
-        add_ops = [op for op in ledger.operations if op["operation"] == "ADD"]
-        assert len(update_ops) == 0, "UPDATE with unknown target should be rejected"
-        assert len(add_ops) == 0, "Should not fallback to ADD for UPDATE"
-
-    def test_invalidate_unknown_id_rejected(self):
-        """INVALIDATE on non-existent ID → rejected."""
-        reconciler = FactReconciler()
-        model_output = [
-            {"id": "99", "text": "", "event": "INVALIDATE"},
-        ]
-        ledger = reconciler.reconcile_from_model_output(
-            model_output, [], id_mapping={}
-        )
-        invalidate_ops = [op for op in ledger.operations if op["operation"] == "INVALIDATE"]
-        assert len(invalidate_ops) == 0
-
-    def test_add_creates_new_fact(self):
-        """ADD with proper mapping works."""
-        reconciler = FactReconciler()
-        model_output = [
-            {"id": "0", "text": "New fact from model", "event": "ADD"},
-        ]
-        id_mapping = {"0": "real-new-1"}
-        ledger = reconciler.reconcile_from_model_output(
-            model_output, [], id_mapping=id_mapping
-        )
-        add_ops = [op for op in ledger.operations if op["operation"] == "ADD"]
-        assert len(add_ops) == 1
-
-    def test_no_real_uuid_generated_by_model(self):
-        """Only code generates real UUIDs — model IDs must not pass through."""
-        reconciler = FactReconciler()
-        # Model tries to use a UUID-looking ID not in mapping
-        model_output = [
-            {"id": "fake-uuid-12345", "text": "Bad fact", "event": "ADD"},
-        ]
-        id_mapping = {}  # No mapping for fake-uuid-12345
-        ledger = reconciler.reconcile_from_model_output(
-            model_output, [], id_mapping=id_mapping
-        )
-        # ADD creates a fact, but its UUID should be auto-generated (not "fake-uuid-12345")
-        if ledger.all_facts:
-            # If any fact was added, it shouldn't use the model's raw ID
-            for f in ledger.all_facts:
-                assert f.fact_id != "fake-uuid-12345", "Model-provided non-UUID must not become fact_id"
-
-
-# ===========================================================================
 # 10. Dynamic conflict derivation
 # ===========================================================================
 
@@ -795,19 +671,6 @@ class TestSearchDigestSourceRecord:
         assert sr2.source_id == sr.source_id
         assert sr2.url == sr.url
 
-    def test_search_digest_with_registry(self):
-        builder = SearchDigestBuilder()
-        results = [
-            {"url": "https://a.com/1", "title": "Article 1", "content": "Content 1"},
-            {"url": "https://a.com/2", "title": "Article 2", "content": "Content 2"},
-        ]
-        digest = builder.build(query="test query", raw_results=results)
-        assert len(digest.source_registry) > 0
-        # tokens_after must include query, source IDs, snippets, claims, format
-        assert digest.tokens_after > 0
-        # tokens_before must be >= tokens_after (compression)
-        assert digest.tokens_before >= digest.tokens_after
-
     def test_search_digest_round_trip(self):
         registry = {"S1": SourceRecord(source_id="S1", url="https://a.com", title="A")}
         sd = SearchDigest(
@@ -832,15 +695,6 @@ class TestSearchDigestSourceRecord:
 
 
 class TestSerializationRoundTrips:
-    def test_tool_prune_result_round_trip(self):
-        r = ToolPruneResult(messages_before=10, messages_after=5,
-                            tokens_before=1000, tokens_after=500,
-                            tools_cleared=3, tokens_reclaimed=500)
-        d = r.to_dict()
-        r2 = ToolPruneResult.from_dict(d)
-        assert r2.tools_cleared == 3
-        assert r2.reduction_ratio == r.reduction_ratio
-
     def test_context_assembly_result_round_trip(self):
         r = ContextAssemblyResult(
             system_prompt="system",
@@ -935,7 +789,6 @@ class TestMergedMemorySufficientCoverage:
             required_for_full_report={"growth": 5},
             required_for_early_stop={"growth": 1},
             min_independent_sources=1,
-            unresolved_conflicts_block_stop=False,
         )
         mm = MergedMemory(
             total_facts=1,

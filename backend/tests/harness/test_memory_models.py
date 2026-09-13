@@ -12,14 +12,10 @@ from harness.models.memory import (
     SearchDigest,
     CompressedTurn,
     MergedMemory,
-    ToolPruneResult,
     ContextAssemblyResult,
     CoveragePolicy,
     _extract_json,
-    _extract_json_list,
     _normalize_fact_text,
-    _facts_are_semantically_equivalent,
-    _source_id_for_url,
     _stable_message_id,
     _now_iso,
 )
@@ -162,7 +158,6 @@ class TestCompressedTurn:
             key_findings=["API and ChatGPT subscriptions", "Enterprise licensing"],
             evidence_quality="high",
             sources_cited=["https://example.com/1"],
-            unanswered="",
         )
         d = ct.to_dict()
         ct2 = CompressedTurn.from_dict(d)
@@ -242,23 +237,14 @@ class TestMergedMemory:
             coverage={"business_model": 3, "growth": 3, "risk": 3, "competition": 2, "financials": 2},
             independent_source_count=3,
         )
-        policy = CoveragePolicy(min_independent_sources=2, unresolved_conflicts_block_stop=False)
+        policy = CoveragePolicy(min_independent_sources=2)
         assert mm.has_sufficient_coverage(policy)
 
     def test_insufficient_coverage_when_gaps(self):
         mm = MergedMemory(
             coverage={"business_model": 1, "growth": 1, "risk": 1, "competition": 0, "financials": 0},
         )
-        policy = CoveragePolicy(unresolved_conflicts_block_stop=False)
-        assert not mm.has_sufficient_coverage(policy)
-
-    def test_unresolved_conflict_blocks_sufficient(self):
-        mm = MergedMemory(
-            coverage={"business_model": 3, "growth": 3, "risk": 3, "competition": 2, "financials": 2},
-            unresolved_conflicts=["conflict-1"],
-            independent_source_count=2,
-        )
-        policy = CoveragePolicy(min_independent_sources=1)
+        policy = CoveragePolicy()
         assert not mm.has_sufficient_coverage(policy)
 
     def test_to_dict_from_dict_roundtrip(self):
@@ -267,7 +253,6 @@ class TestMergedMemory:
             coverage={"business_model": 2, "growth": 1, "risk": 0, "competition": 1, "financials": 1, "other": 0},
             knowledge_gaps=["risk", "financials"],
             risk_flags=["Some risk"],
-            unresolved_questions=["Q1"],
             unresolved_conflicts=[],
             used_sources={"https://a.com/1"},
             independent_source_count=1,
@@ -299,14 +284,9 @@ class TestJSONExtraction:
     def test_extract_json_invalid_returns_empty(self):
         assert _extract_json("not json at all") == {}
 
-    def test_extract_json_list(self):
-        result = _extract_json_list('[{"id": "0", "text": "Hello"}]')
-        assert len(result) == 1
-        assert result[0]["id"] == "0"
-
 
 # ===========================================================================
-# Fact normalization and equivalence
+# Fact normalization
 # ===========================================================================
 
 
@@ -317,27 +297,6 @@ class TestFactNormalization:
         assert "has" not in norm
         assert "company strong revenue growth" in norm
 
-    def test_facts_are_semantically_equivalent(self):
-        assert _facts_are_semantically_equivalent(
-            "Company revenue grew 30% in fiscal 2025",
-            "Revenue grew 30 percent in fiscal year 2025",
-        )
-
-    def test_different_facts_not_equivalent(self):
-        assert not _facts_are_semantically_equivalent(
-            "Revenue grew by 30%",
-            "The CEO was fired last week",
-        )
-
-    def test_chinese_fact_semantic_comparison(self):
-        """Chinese facts with same meaning should match."""
-        result = _facts_are_semantically_equivalent(
-            "公司收入增长30%",
-            "公司收入增加了百分之三十",
-        )
-        # May or may not match depending on overlap; ensure no crash
-        assert isinstance(result, bool)
-
 
 # ===========================================================================
 # Stable ID helpers
@@ -345,16 +304,6 @@ class TestFactNormalization:
 
 
 class TestStableIDs:
-    def test_source_id_for_url_stable(self):
-        sid1 = _source_id_for_url("https://example.com/page1")
-        sid2 = _source_id_for_url("https://example.com/page1")
-        assert sid1 == sid2
-
-    def test_source_id_different_urls(self):
-        sid1 = _source_id_for_url("https://a.com/1")
-        sid2 = _source_id_for_url("https://a.com/2")
-        assert sid1 != sid2
-
     def test_stable_message_id_no_index_dependency(self):
         """_stable_message_id no longer takes index — uses intrinsic properties."""
         from langchain_core.messages import HumanMessage
@@ -363,21 +312,6 @@ class TestStableIDs:
         sid = _stable_message_id(msg, occurrence_key="")
         assert isinstance(sid, str)
         assert len(sid) > 0
-
-
-# ===========================================================================
-# ToolPruneResult tests
-# ===========================================================================
-
-
-class TestToolPruneResult:
-    def test_reduction_ratio(self):
-        r = ToolPruneResult(tokens_before=1000, tokens_after=600, tokens_reclaimed=400)
-        assert r.reduction_ratio == 0.4
-
-    def test_zero_before(self):
-        r = ToolPruneResult(tokens_before=0)
-        assert r.reduction_ratio == 0.0
 
 
 # ===========================================================================

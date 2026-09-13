@@ -10,7 +10,8 @@ wheels/
 .ruff_cache/
 .coverage
 htmlcov/
-
+docs/
+references/
 # Virtual environments
 .venv
 .python-version

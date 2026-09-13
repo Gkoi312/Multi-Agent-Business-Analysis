@@ -5,45 +5,56 @@ Each analyst runs its own interview instance in parallel (fan-out).
 Round 3: ContextAssembler wired into all LLM nodes, WorkingMemory as sole
 truth source, source registry for traceability, history compaction on pressure.
 """
-from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.memory import MemorySaver
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
-from langchain_core.messages import get_buffer_string
+
 import time
 import uuid
 from typing import Any
 
-from harness.models.agent import AnalystPlan, RetrievedSource, ReviewFinding, SearchQuery
+from harness.exceptions import ResearchAnalystException
+from harness.observability.logger import GLOBAL_LOGGER
+from harness.memory.compressor import IncrementalCompressor
+from harness.memory.context_assembler import ContextAssembler
+from harness.memory.context_window import ContextWindowManager
+from harness.memory.nodes import (
+    build_working_memory_from_state,
+    format_working_memory_context,
+    make_compact_history_node,
+    make_compress_node,
+    make_should_continue_router,
+    make_update_memory_node,
+)
+from harness.memory.policies import MemoryDomainConfig, TokenBudget
+from harness.memory.working_memory import WorkingMemory
+from harness.models.agent import (
+    AnalystPlan,
+    RetrievedSource,
+    ReviewFinding,
+    SearchQuery,
+)
 from harness.models.memory import (
     CompressedTurn,
-    MergedMemory,
+    ContextBudgetExceeded,
     RunningSummary,
     SearchDigest,
     SourceRecord,
-    ContextBudgetExceeded,
-    TokenCounter,
-    _now_iso,
 )
-from harness.memory.working_memory import WorkingMemory
-from harness.tools.search.base import SearchDocument, SearchQuery as ToolSearchQuery
-from harness.tools.pipeline import ToolPipeline, ToolContext
+from harness.tools.pipeline import ToolContext, ToolPipeline
 from harness.tools.registry import TOOL_REGISTRY, ToolRegistry
+from harness.tools.search.base import SearchDocument
+from harness.tools.search.base import SearchQuery as ToolSearchQuery
 from harness.tools.search.cleaner import SEARCH_PIPELINE_FULL
-from harness.memory.compressor import IncrementalCompressor
-from harness.memory.context_window import ContextWindowManager
-from harness.memory.context_assembler import ContextAssembler
-from harness.memory.search_digest import SearchDigestBuilder
-from harness.memory.policies import TokenBudget, CompactionPolicy, MemoryDomainConfig
-from domains.due_diligence.schemas import InterviewState
+from langchain_core.messages import HumanMessage, SystemMessage, get_buffer_string
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import END, START, StateGraph
+
 from domains.due_diligence.memory_config import DUE_DILIGENCE_MEMORY_CONFIG
 from domains.due_diligence.prompts.interview import (
     ANALYST_ASK_QUESTIONS,
-    GENERATE_SEARCH_QUERY,
     GENERATE_ANSWERS,
+    GENERATE_SEARCH_QUERY,
     WRITE_SECTION,
 )
-from app.logger import GLOBAL_LOGGER
-from app.exception.custom_exception import ResearchAnalystException
+from domains.due_diligence.schemas import InterviewState
 
 
 class InterviewGraphBuilder:
@@ -94,9 +105,6 @@ class InterviewGraphBuilder:
             token_budget=self.token_budget,
             window_mgr=window_mgr,
         )
-        self.search_digest_builder = SearchDigestBuilder(
-            token_counter=lambda x: window_mgr.estimate_tokens(str(x)),
-        )
 
         self.memory = checkpointer or MemorySaver()
         self.logger = GLOBAL_LOGGER.bind(module="InterviewGraphBuilder")
@@ -106,6 +114,11 @@ class InterviewGraphBuilder:
         if isinstance(obj, dict):
             return obj.get(key, default)
         return getattr(obj, key, default)
+
+    @staticmethod
+    def _now_iso() -> str:
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc).isoformat()
 
     @staticmethod
     def _format_skill_card(skill_card) -> str:
@@ -141,59 +154,72 @@ class InterviewGraphBuilder:
         )
 
     @staticmethod
-    def _ensure_message_ids(messages: list[Any]) -> list[Any]:
-        """Ensure every message in the list has a persistent ID.
+    def _format_gaps_only(state: InterviewState) -> str:
+        """Return only the knowledge gaps from WorkingMemory for ask_question.
 
-        Messages without IDs get a UUID assigned. Returns a new list
-        (does not mutate originals in ways LangGraph can't track).
+        Intentionally omits the full fact list — injecting all known facts into
+        the question-generation prompt causes the LLM to self-censor (shorter
+        questions, premature "Thank you") because it thinks the brief is covered.
+        Gaps alone tell it *what is still missing* without suppressing depth.
         """
-        result = []
-        for msg in messages:
-            msg_id = getattr(msg, "id", None)
-            if not msg_id:
-                try:
-                    new_msg = msg.model_copy(update={"id": str(uuid.uuid4())})
-                    result.append(new_msg)
-                except Exception:
-                    result.append(msg)
+        wm_dict = state.get("working_memory") or {}
+        if not wm_dict:
+            return ""
+        try:
+            wm = WorkingMemory.from_dict(wm_dict)
+            gaps = wm.knowledge_gaps
+            turn = wm.turns_completed
+            total_facts = wm.active_fact_count()
+            if not gaps and total_facts == 0:
+                return ""
+            lines = [f"Research round {turn} complete. {total_facts} facts collected."]
+            if gaps:
+                lines.append(f"Still open ({len(gaps)} gaps): {', '.join(str(g) for g in gaps)}")
             else:
-                result.append(msg)
-        return result
+                lines.append("No explicit gaps remaining — probe for depth or edge cases.")
+            return "\n".join(lines)
+        except Exception:
+            return ""
 
     # ------------------------------------------------------------------
     # Round 3: Context Assembly helper
     # ------------------------------------------------------------------
 
     def _make_working_memory(self, state: InterviewState) -> WorkingMemory:
-        """Create a WorkingMemory from state, always with domain_config injected."""
-        wm_dict = state.get("working_memory") or {}
-        if wm_dict:
-            wm = WorkingMemory.from_dict(wm_dict)
-        else:
-            wm = WorkingMemory(
-                coverage_policy=self._domain_config.coverage_policy,
-                domain_config=self._domain_config,
-            )
-        # Ensure domain_config is set (from_dict may not preserve it)
-        if wm.domain_config is None:
-            wm.domain_config = self._domain_config
-        if wm._reconciler is None or wm._reconciler._domain_config is None:
-            from harness.memory.fact_reconciler import FactReconciler
-            wm._reconciler = FactReconciler(domain_config=self._domain_config)
-        return wm
+        """Create a WorkingMemory from state, always with domain_config injected.
+
+        Thin wrapper around the generic harness helper (kept as a method for
+        call-site convenience since ``self._domain_config`` is fixed per builder).
+        """
+        return build_working_memory_from_state(state, self._domain_config)
 
     def _assemble_llm_messages(
         self,
         state: InterviewState,
         system_prompt: str,
         *,
-        include_search_digest: bool = False,
         include_recent_messages: bool = True,
+        include_working_memory: bool = True,
+        include_research_summary: bool = True,
     ) -> list:
         """Build the projected LLM input from canonical state.
 
         NEVER mutates state["messages"]. Returns a NEW list of messages
         for the LLM call only.
+
+        Search results are NOT injected here as a separate digest block —
+        every caller that needs search content already embeds the current
+        turn's full raw context (``state["context"][-1]``) directly into its
+        own system_prompt, which is a strict superset of what a digest of
+        the same round's results would add. Injecting both would just spend
+        tokens repeating the same information twice.
+
+        ``include_working_memory`` / ``include_research_summary`` default to
+        True (the generic path). Callers that already baked a working-memory
+        or compressed-turns view into ``system_prompt`` themselves (e.g. the
+        gaps-only view ``_generate_question`` uses) must pass False for that
+        piece — otherwise the same content is billed twice: once in the
+        caller's own system_prompt, once again here.
         """
         try:
             # 1. Restore WorkingMemory from state (with domain_config)
@@ -209,30 +235,27 @@ class InterviewGraphBuilder:
             compressed_turns = [
                 CompressedTurn.from_dict(d) if isinstance(d, dict) else d
                 for d in compressed_turns_raw
-            ]
+            ] if include_research_summary else []
 
-            # 4. Search digest
-            search_digest_str = ""
-            sd_dict = state.get("search_digest") or {}
-            if include_search_digest and sd_dict:
-                sd = SearchDigest.from_dict(sd_dict) if isinstance(sd_dict, dict) else sd_dict
-                search_digest_str = self._format_search_digest(sd)
+            # 4. Working memory formatted
+            working_memory_str = (
+                wm.format() if include_working_memory and wm.active_fact_count() > 0 else ""
+            )
 
-            # 5. Working memory formatted
-            working_memory_str = wm.format() if wm.active_fact_count() > 0 else ""
-
-            # 6. Assemble via ContextAssembler
+            # 5. Assemble via ContextAssembler. Messages already folded into
+            # running_summary are excluded from recent_raw_messages so the
+            # summary doesn't duplicate content that's still present raw.
             messages = state["messages"]
             result = self.context_assembler.assemble(
                 messages=messages,
                 system_prompt=system_prompt,
                 compressed_turns=compressed_turns,
                 working_memory_str=working_memory_str,
-                search_digest_str=search_digest_str if include_search_digest else "",
                 execution_summary=running_summary_str,
+                summarized_message_ids=running_summary.summarized_message_ids,
             )
 
-            # 7. Build actual LangChain messages
+            # 6. Build actual LangChain messages
             assembled: list = []
 
             # Build enriched system message
@@ -243,10 +266,6 @@ class InterviewGraphBuilder:
                 system_parts.append(f"\n## Current Knowledge\n{result.working_memory}")
             if result.execution_summary:
                 system_parts.append(f"\n## Conversation Summary\n{result.execution_summary}")
-            if result.current_search_digest:
-                system_parts.append(f"\n## Search Results\n{result.current_search_digest}")
-            if result.retrieved_long_term_facts:
-                system_parts.append(f"\n## Background\n{result.retrieved_long_term_facts}")
 
             assembled.append(SystemMessage(content="\n".join(system_parts)))
 
@@ -273,26 +292,6 @@ class InterviewGraphBuilder:
         except Exception as e:
             self.logger.error(f"Context assembly failed: {e}; falling back to system prompt only")
             return [SystemMessage(content=system_prompt)]
-
-    @staticmethod
-    def _format_search_digest(sd: SearchDigest) -> str:
-        """Format a SearchDigest as a compact string for the system prompt."""
-        if not sd or not sd.source_ids:
-            return ""
-        lines = [f"Search results for: {sd.query}"]
-        for i, sid in enumerate(sd.source_ids):
-            rec = sd.source_registry.get(sid)
-            title = ""
-            if rec:
-                title = getattr(rec, "title", "") or ""
-                if isinstance(rec, dict):
-                    title = rec.get("title", "")
-            lines.append(f"  [{sid}] {title}")
-        if sd.evidence_snippets:
-            lines.append("Key snippets:")
-            for s in sd.evidence_snippets[:3]:
-                lines.append(f"  - {s[:200]}")
-        return "\n".join(lines)
 
     # Provider priority order — first available wins (web search only).
     # Policy may override via ``preferred_provider`` or ``search_provider`` keys.
@@ -397,7 +396,7 @@ class InterviewGraphBuilder:
 
         pipeline_ctx = ToolContext(
             target_entity=target_entity,
-            target_focus="",
+            target_focus=state.get("focus", "") or "",
             source_type=source_type,
         )
         cleaned, trace = self.pipeline.run_with_trace(fetched, pipeline_ctx)
@@ -475,7 +474,11 @@ class InterviewGraphBuilder:
         assigned_plan = state.get("assigned_plan")
         domain_memory = state.get("domain_memory", []) or []
 
-        working_memory_block = self._build_working_memory_context(state)
+        # Only inject knowledge gaps into ask_question, NOT the full fact list.
+        # Injecting all known facts causes the LLM to self-censor and ask shorter
+        # questions (or terminate early). Gaps alone tell it *what's still missing*
+        # without suppressing its curiosity about already-known topics.
+        working_memory_block = self._format_gaps_only(state)
 
         try:
             self.logger.info("Generating analyst question", analyst=analyst.name)
@@ -488,8 +491,11 @@ class InterviewGraphBuilder:
             )
 
             started_at = time.perf_counter()
+            # working_memory_block above is the gaps-only view; don't let
+            # the generic path re-inject the full working memory on top of it.
             assembled_messages = self._assemble_llm_messages(
-                state, system_prompt, include_search_digest=False, include_recent_messages=True,
+                state, system_prompt, include_recent_messages=True,
+                include_working_memory=False,
             )
             question = self.llm.invoke(assembled_messages)
 
@@ -536,20 +542,47 @@ class InterviewGraphBuilder:
             from harness.utils.llm_json import invoke_as_json
             search_prompt = GENERATE_SEARCH_QUERY.render(
                 assigned_plan=self._format_assigned_plan(state.get("assigned_plan")),
+                skill_card=self._format_skill_card(state.get("skill_card")),
             )
 
             started_at = time.perf_counter()
             assembled_messages = self._assemble_llm_messages(
-                state, search_prompt, include_search_digest=False, include_recent_messages=True,
+                state, search_prompt, include_recent_messages=True,
             )
-            search_query, query_usage = invoke_as_json(
-                self.llm, assembled_messages, SearchQuery,
-            )
+            try:
+                search_query, query_usage = invoke_as_json(
+                    self.llm, assembled_messages, SearchQuery,
+                )
+            except Exception as parse_exc:
+                analyst = state.get("analyst")
+                company = state.get("company_name", "") or ""
+                focus = state.get("focus", "") or ""
+                role = str(getattr(analyst, "role", "") or getattr(analyst, "description", "") or "")
+                fallback_terms = " ".join(
+                    part for part in [company, role, focus, "due diligence"] if part
+                ).strip()
+                search_query = SearchQuery(
+                    search_query=fallback_terms or "AI company due diligence",
+                    source_type="web",
+                    site_hints=[],
+                    freshness_hint="balanced",
+                    reasoning=(
+                        "Fallback query: the LLM did not return parseable JSON "
+                        f"for search routing ({parse_exc})."
+                    ),
+                )
+                query_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+                self.logger.warning(
+                    "Search query JSON parse failed; using fallback query",
+                    query=search_query.search_query,
+                    error=str(parse_exc),
+                )
 
             query_latency_ms = int((time.perf_counter() - started_at) * 1000)
 
             provider, resolved_type = self._route_search(search_query, None)
             search_backend = self.tool_registry.get_search(provider)
+            cleaned: list[SearchDocument] = []
 
             if search_backend is not None:
                 # LLM sets site_hints + freshness_hint in SearchQuery
@@ -565,7 +598,7 @@ class InterviewGraphBuilder:
 
                 pipeline_ctx = ToolContext(
                     target_entity=state.get("company_name", "") or "",
-                    target_focus="",
+                    target_focus=state.get("focus", "") or "",
                     source_type=resolved_type,
                 )
                 cleaned, trace = self.pipeline.run_with_trace(raw_results, pipeline_ctx)
@@ -578,9 +611,21 @@ class InterviewGraphBuilder:
                 )
 
                 # ---- Deep-read: fetch full page content for top results ----
+                # Drop the snippet-only entry for any URL that got a full-page
+                # fetch — otherwise both versions survive into `cleaned` and
+                # get formatted (and citation-numbered) as if they were two
+                # different sources, doubling that page's token cost for
+                # nothing.
                 deep_docs = self._deep_read(cleaned[:5], state)
                 if deep_docs:
-                    cleaned = cleaned + deep_docs
+                    deep_urls = {
+                        (d.canonical_url or d.url) for d in deep_docs
+                        if (d.canonical_url or d.url)
+                    }
+                    cleaned = [
+                        d for d in cleaned
+                        if (d.canonical_url or d.url) not in deep_urls
+                    ] + deep_docs
                     self.logger.info(
                         "Deep-read appended to search results",
                         deep_count=len(deep_docs),
@@ -620,27 +665,49 @@ class InterviewGraphBuilder:
                     existing_registry[str(k)] = v
                 # Find next available S-n index
                 next_idx = 1
-                for key in existing_registry:
+                # ---- Bug fix: reuse the existing source_id for a URL already
+                # registered in a prior round, instead of minting a new one
+                # each time the same article resurfaces (inflates
+                # independent_source_count with duplicate sources) ----
+                url_to_existing_sid: dict[str, str] = {}
+                for key, rec in existing_registry.items():
                     if key.startswith("S") and key[1:].isdigit():
                         n = int(key[1:])
                         if n >= next_idx:
                             next_idx = n + 1
+                    rec_url = rec.get("url") if isinstance(rec, dict) else getattr(rec, "url", "")
+                    if rec_url:
+                        url_to_existing_sid.setdefault(str(rec_url), key)
 
                 formatted_parts: list[str] = []
                 normalized_sources: list[RetrievedSource] = []
                 current_turn_registry: dict[str, SourceRecord] = {}
 
                 for doc in cleaned:
-                    sid = f"S{next_idx}"
-                    next_idx += 1
-                    formatted_parts.append(doc.metadata.get("formatted", str(doc)))
-
                     url = doc.canonical_url or doc.url or ""
+                    existing_sid = url_to_existing_sid.get(url) if url else None
+                    # A URL already cited in an earlier round keeps its S-id
+                    # for citation continuity, but its full text isn't
+                    # re-embedded into this round's context — it's already
+                    # sitting in an earlier `context` entry, and `context`
+                    # (unlike the Q&A history) is never pruned, so a repeat
+                    # inclusion is pure duplication, not a compaction trade-off.
+                    is_new_source = existing_sid is None
+                    if existing_sid:
+                        sid = existing_sid
+                    else:
+                        sid = f"S{next_idx}"
+                        next_idx += 1
+                        if url:
+                            url_to_existing_sid[url] = sid
+                    if is_new_source:
+                        formatted_parts.append(doc.metadata.get("formatted", str(doc)))
+
                     current_turn_registry[sid] = SourceRecord(
                         source_id=sid,
                         url=url,
                         title=doc.title or "",
-                        retrieved_at=_now_iso(),
+                        retrieved_at=self._now_iso(),
                     )
 
                     normalized_sources.append(
@@ -653,15 +720,16 @@ class InterviewGraphBuilder:
                             credibility_note="Pipeline-cleaned; verify in review.",
                         )
                     )
-                formatted = "\n\n---\n\n".join(formatted_parts)
-
-                # Build SearchDigest
-                search_digest = self.search_digest_builder.build(
-                    query=search_query.search_query,
-                    raw_results=cleaned,
+                formatted = "\n\n---\n\n".join(formatted_parts) if formatted_parts else (
+                    "[All sources this round were already cited in earlier rounds — "
+                    "see prior citations for their content.]"
                 )
-                search_digest.source_registry = current_turn_registry
-                search_digest.source_ids = list(current_turn_registry.keys())
+
+                search_digest = SearchDigest(
+                    query=search_query.search_query,
+                    source_ids=list(current_turn_registry.keys()),
+                    source_registry=current_turn_registry,
+                )
 
                 # Merge into accumulated registry
                 merged_registry = dict(existing_registry_raw)
@@ -681,31 +749,48 @@ class InterviewGraphBuilder:
                     formatted = "[No search results found.]"
                     search_digest = SearchDigest(query=search_query.search_query)
                 else:
-                    # Continue indexing from existing
+                    # Continue indexing from existing, reusing the existing
+                    # source_id for a URL already registered in a prior round
+                    # (see the primary search path above for why).
                     next_idx = 1
-                    for key in merged_registry:
+                    url_to_existing_sid: dict[str, str] = {}
+                    for key, rec in merged_registry.items():
                         if key.startswith("S") and key[1:].isdigit():
                             n = int(key[1:])
                             if n >= next_idx:
                                 next_idx = n + 1
+                        rec_url = rec.get("url") if isinstance(rec, dict) else getattr(rec, "url", "")
+                        if rec_url:
+                            url_to_existing_sid.setdefault(str(rec_url), key)
 
                     formatted_parts = []
                     for source in normalized_sources:
-                        sid = f"S{next_idx}"
-                        next_idx += 1
-                        href = source.url or "#"
-                        formatted_parts.append(f'<Document href="{href}"/>\n{source.snippet}\n</Document>')
+                        existing_sid = url_to_existing_sid.get(source.url) if source.url else None
+                        is_new_source = existing_sid is None
+                        if existing_sid:
+                            sid = existing_sid
+                        else:
+                            sid = f"S{next_idx}"
+                            next_idx += 1
+                            if source.url:
+                                url_to_existing_sid[source.url] = sid
+                        if is_new_source:
+                            href = source.url or "#"
+                            formatted_parts.append(f'<Document href="{href}"/>\n{source.snippet}\n</Document>')
                         current_turn_registry[sid] = SourceRecord(
                             source_id=sid, url=source.url, title=source.title,
-                            retrieved_at=_now_iso(),
+                            retrieved_at=self._now_iso(),
                         )
                         source.source_id = sid
-                    formatted = "\n\n---\n\n".join(formatted_parts)
-                    search_digest = self.search_digest_builder.build(
-                        query=search_query.search_query, raw_results=search_docs,
+                    formatted = "\n\n---\n\n".join(formatted_parts) if formatted_parts else (
+                        "[All sources this round were already cited in earlier rounds — "
+                        "see prior citations for their content.]"
                     )
-                    search_digest.source_registry = current_turn_registry
-                    search_digest.source_ids = list(current_turn_registry.keys())
+                    search_digest = SearchDigest(
+                        query=search_query.search_query,
+                        source_ids=list(current_turn_registry.keys()),
+                        source_registry=current_turn_registry,
+                    )
                     for k, v in current_turn_registry.items():
                         merged_registry[str(k)] = v.to_dict() if hasattr(v, "to_dict") else v
 
@@ -758,7 +843,7 @@ class InterviewGraphBuilder:
         all_context = state.get("context", ["[No context available.]"])
         current_context = [all_context[-1]] if all_context else ["[No context available.]"]
 
-        working_memory_block = self._build_working_memory_context(state)
+        working_memory_block = format_working_memory_context(state)
 
         try:
             self.logger.info("Generating expert answer", analyst=analyst.name)
@@ -771,8 +856,12 @@ class InterviewGraphBuilder:
             )
 
             started_at = time.perf_counter()
+            # working_memory_block above already combines full working memory
+            # + the last 2 compressed turns; don't let the generic path
+            # re-inject either as a separate section on top of it.
             assembled_messages = self._assemble_llm_messages(
-                state, system_prompt, include_search_digest=True, include_recent_messages=True,
+                state, system_prompt, include_recent_messages=True,
+                include_working_memory=False, include_research_summary=False,
             )
             answer = self.llm.invoke(assembled_messages)
 
@@ -805,222 +894,6 @@ class InterviewGraphBuilder:
         except Exception as e:
             self.logger.error("Error generating expert answer", error=str(e))
             raise ResearchAnalystException("Failed to generate expert answer", e)
-
-    # ----------------------------------------------------------------------
-    # Step 3b: Compress current turn into structured summary
-    # ----------------------------------------------------------------------
-    def _compress(self, state: InterviewState):
-        """Compress the current Q&A round into a CompressedTurn.
-
-        Bug fixes:
-        - Only calls model ONCE (removed duplicate compress_turn + compress_completed_turn).
-        - Passes only CURRENT turn's registry (not accumulated history).
-        """
-        try:
-            question, answer = IncrementalCompressor.extract_last_question_and_answer(
-                state["messages"]
-            )
-            context = state.get("context", [])
-            search_summary = IncrementalCompressor.summarise_context(
-                [str(c) for c in (context[-3:] if len(context) > 3 else context)]
-            )
-
-            # Bug fix: use current-turn registry, not accumulated history
-            # _current_turn_registry is set by _search_web for this exact purpose
-            current_registry = state.get("_current_turn_registry") or {}
-            if not current_registry:
-                # Fallback: compute delta from full registry (less reliable)
-                current_registry = state.get("source_registry") or {}
-
-            turn_count = int(state.get("turn_count", 1) or 1)
-            self.logger.info("Compressing interview turn", turn=turn_count)
-
-            # Bug fix: single call — always use compress_completed_turn with registry
-            compressed = self.compressor.compress_completed_turn(
-                question=question,
-                answer=answer,
-                search_summary=search_summary,
-                source_registry=current_registry,
-            )
-
-            # Accumulate compressed history
-            compressed_history: list[dict] = list(state.get("compressed_turns", []) or [])
-            compressed_history.append(compressed.to_dict())
-
-            fact_count = len(compressed.facts) if compressed.facts else len(compressed.key_findings)
-            self.logger.info(
-                "Turn compressed",
-                turn=turn_count,
-                facts=fact_count,
-                quality=compressed.evidence_quality,
-            )
-
-            return {
-                "compressed_turns": compressed_history,
-                "workflow_events": [
-                    {
-                        "event": "compress.completed",
-                        "payload": {
-                            "turn": turn_count,
-                            "facts_extracted": fact_count,
-                        },
-                    }
-                ],
-            }
-
-        except Exception as e:
-            self.logger.error("Error compressing interview turn", error=str(e))
-            return {
-                "workflow_events": [
-                    {"event": "compress.failed", "payload": {"error": str(e)}}
-                ],
-            }
-
-    # ----------------------------------------------------------------------
-    # Step 3c: Update structured working memory (SOLE TRUTH SOURCE)
-    # ----------------------------------------------------------------------
-    def _update_memory(self, state: InterviewState):
-        """Sync the WorkingMemory from compressed turns.
-
-        Bug fix: domain_config flows into WorkingMemory → FactReconciler.
-        """
-        try:
-            wm = self._make_working_memory(state)
-            compressed_history: list[dict] = list(state.get("compressed_turns", []) or [])
-
-            # Only ingest facts from turns NOT yet processed
-            turns_to_ingest = compressed_history[wm.turns_completed:]
-
-            for turn_dict in turns_to_ingest:
-                turn = CompressedTurn.from_dict(turn_dict) if isinstance(turn_dict, dict) else turn_dict
-                wm.ingest_compressed_turn(turn)
-
-            snapshot = wm.to_merged_memory()
-
-            turn_count = int(state.get("turn_count", 1) or 1)
-            self.logger.info(
-                "Working memory updated",
-                turn=turn_count,
-                total_facts=snapshot.total_facts,
-                active_facts=wm.active_fact_count(),
-                gaps=wm.knowledge_gaps,
-                conflicts=len(wm.unresolved_conflicts),
-            )
-
-            return {
-                "working_memory": wm.to_dict(),
-                "memory_snapshot": snapshot.to_dict(),
-                "workflow_events": [
-                    {
-                        "event": "memory.updated",
-                        "payload": {
-                            "total_facts": snapshot.total_facts,
-                            "knowledge_gaps": wm.knowledge_gaps,
-                            "risk_flag_count": len(wm.risk_flags),
-                            "unresolved_conflicts": len(wm.unresolved_conflicts),
-                        },
-                    }
-                ],
-            }
-
-        except Exception as e:
-            self.logger.error("Error updating working memory", error=str(e))
-            return {
-                "workflow_events": [
-                    {"event": "memory.update_failed", "payload": {"error": str(e)}}
-                ],
-            }
-
-    # ----------------------------------------------------------------------
-    # Step 3d: History compaction (on pressure)
-    # ----------------------------------------------------------------------
-    def _compact_history(self, state: InterviewState):
-        """Run history compaction if the context window is under pressure."""
-        try:
-            messages = state["messages"]
-            rs_dict = state.get("running_summary") or {}
-            running_summary = RunningSummary.from_dict(rs_dict) if rs_dict else None
-
-            turn_count = int(state.get("turn_count", 1) or 1)
-
-            wm_str = self._build_working_memory_context(state)
-            ct_str = IncrementalCompressor.format_compressed_turns([
-                CompressedTurn.from_dict(d) if isinstance(d, dict) else d
-                for d in (state.get("compressed_turns") or [])
-            ])
-
-            if not self.compressor.should_compact_history(
-                messages,
-                turn_count=turn_count,
-                working_memory_str=wm_str,
-                compressed_turns_str=ct_str,
-            ):
-                return {
-                    "workflow_events": [
-                        {"event": "compact_history.skipped", "payload": {"reason": "below_threshold"}}
-                    ],
-                }
-
-            self.logger.info("Compacting conversation history", turn=turn_count)
-            projected, updated_rs = self.compressor.compact_history(
-                messages,
-                running_summary=running_summary,
-            )
-
-            if updated_rs is not None:
-                return {
-                    "running_summary": updated_rs.to_dict(),
-                    "workflow_events": [
-                        {"event": "compact_history.completed", "payload": {"version": updated_rs.version}}
-                    ],
-                }
-
-            return {
-                "workflow_events": [
-                    {"event": "compact_history.completed", "payload": {"version": running_summary.version if running_summary else 0}}
-                ],
-            }
-
-        except Exception as e:
-            self.logger.error("Error during history compaction", error=str(e))
-            return {
-                "workflow_events": [
-                    {"event": "compact_history.failed", "payload": {"error": str(e)}}
-                ],
-            }
-
-    # ----------------------------------------------------------------------
-    # Helper: build working memory context block for prompts
-    # ----------------------------------------------------------------------
-    @staticmethod
-    def _build_working_memory_context(state: InterviewState) -> str:
-        """Build a contextual block summarising what has been learned so far."""
-        wm_dict = state.get("working_memory") or {}
-        compressed = state.get("compressed_turns") or []
-
-        if not wm_dict and not compressed:
-            return ""
-
-        parts: list[str] = []
-
-        if wm_dict:
-            wm = WorkingMemory.from_dict(wm_dict)
-            if wm.active_fact_count() > 0:
-                parts.append(wm.format())
-
-        if compressed:
-            recent = compressed[-2:]
-            parts.append("\n## Compressed prior rounds")
-            for i, turn_dict in enumerate(recent):
-                try:
-                    turn = CompressedTurn.from_dict(turn_dict)
-                    turn_num = len(compressed) - len(recent) + i + 1
-                    parts.append(f"\n### Round {turn_num}")
-                    parts.append(turn.format())
-                except Exception:
-                    pass
-
-        return "\n".join(parts) if parts else ""
 
     def _save_interview(self, state: InterviewState):
         """Save the entire conversation as a transcript."""
@@ -1068,7 +941,7 @@ class InterviewGraphBuilder:
 
             started_at = time.perf_counter()
             assembled_messages = self._assemble_llm_messages(
-                state, system_prompt, include_search_digest=True, include_recent_messages=True,
+                state, system_prompt, include_recent_messages=True,
             )
             # Append context — but after assembly. Budget check: we append and re-verify.
             assembled_messages.append(context_msg)
@@ -1149,21 +1022,21 @@ class InterviewGraphBuilder:
         if sections:
             section_text = str(sections[-1])
         findings: list[ReviewFinding] = []
-        if "### Sources" not in section_text:
+        if "### Sources" not in section_text and "### 信息来源" not in section_text:
             findings.append(
                 ReviewFinding(
                     severity="high",
                     title="Missing Sources subsection",
-                    detail='Section text has no "### Sources" block.',
-                    suggested_fix="Add a Sources list matching in-section [n] citations.",
+                    detail='Section text has no "### Sources" or "### 信息来源" block.',
+                    suggested_fix="Add a source list matching in-section [n] citations.",
                 )
             )
-        if "### Risk Notes" not in section_text:
+        if "### Risk Notes" not in section_text and "### 风险提示" not in section_text:
             findings.append(
                 ReviewFinding(
                     severity="medium",
                     title="Missing Risk Notes subsection",
-                    detail='Section text has no "### Risk Notes" block.',
+                    detail='Section text has no "### Risk Notes" or "### 风险提示" block.',
                     suggested_fix="Add risk notes with impact and severity where relevant.",
                 )
             )
@@ -1193,37 +1066,20 @@ class InterviewGraphBuilder:
             self.logger.info("Building Interview Graph workflow")
             builder = StateGraph(InterviewState)
 
+            # ask_question / search_web / generate_answer / write_section /
+            # review_section are domain nodes — they own the prompts.
+            # compress / update_memory / compact_history / the continue-router
+            # are generic harness.memory node factories — no prompt, no
+            # domain vocabulary, only the compressor + domain_config as input.
             builder.add_node("ask_question", self._generate_question)
             builder.add_node("search_web", self._search_web)
             builder.add_node("generate_answer", self._generate_answer)
-            builder.add_node("compress", self._compress)
-            builder.add_node("update_memory", self._update_memory)
-            builder.add_node("compact_history", self._compact_history)
+            builder.add_node("compress", make_compress_node(self.compressor))
+            builder.add_node("update_memory", make_update_memory_node(self._domain_config))
+            builder.add_node("compact_history", make_compact_history_node(self.compressor))
             builder.add_node("save_interview", self._save_interview)
             builder.add_node("write_section", self._write_section)
             builder.add_node("review_section", self._review_section)
-
-            def _should_continue(state: InterviewState):
-                max_turns = int(state.get("max_num_turns", 1) or 1)
-                turn_count = int(state.get("turn_count", 0) or 0)
-
-                if turn_count >= max_turns:
-                    return "save_interview"
-
-                # Read from WorkingMemory (sole truth source)
-                wm_dict = state.get("working_memory") or {}
-                if wm_dict:
-                    wm = WorkingMemory.from_dict(wm_dict)
-                    if wm.has_sufficient_coverage():
-                        self.logger.info(
-                            "Coverage sufficient — stopping early",
-                            turn=turn_count,
-                            total_facts=wm.active_fact_count(),
-                            conflicts=len(wm.unresolved_conflicts),
-                        )
-                        return "save_interview"
-
-                return "ask_question"
 
             builder.add_edge(START, "ask_question")
             builder.add_edge("ask_question", "search_web")
@@ -1233,7 +1089,7 @@ class InterviewGraphBuilder:
             builder.add_edge("update_memory", "compact_history")
             builder.add_conditional_edges(
                 "compact_history",
-                _should_continue,
+                make_should_continue_router(continue_node="ask_question", stop_node="save_interview"),
                 ["ask_question", "save_interview"],
             )
             builder.add_edge("save_interview", "write_section")

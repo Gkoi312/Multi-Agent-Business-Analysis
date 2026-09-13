@@ -12,16 +12,10 @@ Usage::
 
     tracer = NodeTracer(task_id="abc123")
 
-    # As a context manager:
     with tracer.trace("create_analyst") as span:
         result = do_work()
         span.set_output(len(result))
         span.record_llm_call(prompt_tokens=500, completion_tokens=200)
-
-    # As a decorator:
-    @tracer.wrap("write_report")
-    def write_report(state):
-        ...
 """
 from __future__ import annotations
 
@@ -29,13 +23,13 @@ import json
 import os
 import time
 import uuid
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterator
+from typing import Any
 
-from app.config import RUNTIME_DIR
-from app.logger import GLOBAL_LOGGER
-
+from harness.observability.logger import GLOBAL_LOGGER
+from harness.observability.paths import default_runtime_dir
 
 # ---------------------------------------------------------------------------
 # Trace entry data model
@@ -127,14 +121,10 @@ class TraceSpan:
     while it's active.  The trace is flushed to disk when the context exits.
     """
 
-    def __init__(self, entry: TraceEntry, tracer: "NodeTracer"):
+    def __init__(self, entry: TraceEntry):
         self._entry = entry
-        self._tracer = tracer
         self._started = time.perf_counter()
         entry.started_at = time.time()
-
-    def set_input(self, summary: str) -> None:
-        self._entry.input_summary = summary[:500]
 
     def set_output(self, summary: str) -> None:
         self._entry.output_summary = str(summary)[:500]
@@ -185,18 +175,13 @@ class NodeTracer:
     ``<RUNTIME_DIR>/traces/<task_id>.jsonl``.
     """
 
-    def __init__(self, task_id: str):
+    def __init__(self, task_id: str, runtime_dir: str | None = None):
         self.task_id = task_id
-        self._traces_dir = os.path.join(os.fspath(RUNTIME_DIR), "traces")
+        base = runtime_dir if runtime_dir is not None else default_runtime_dir()
+        self._traces_dir = os.path.join(os.fspath(base), "traces")
         os.makedirs(self._traces_dir, exist_ok=True)
         self._path = os.path.join(self._traces_dir, f"{task_id}.jsonl")
         self._logger = GLOBAL_LOGGER.bind(module="NodeTracer", task_id=task_id)
-
-    # -- file path ----------------------------------------------------------
-
-    @property
-    def path(self) -> str:
-        return self._path
 
     # -- context manager ----------------------------------------------------
 
@@ -216,7 +201,7 @@ class NodeTracer:
             node_name=node_name,
             span_id=str(uuid.uuid4())[:8],
         )
-        span = TraceSpan(entry, self)
+        span = TraceSpan(entry)
         try:
             yield span
         except Exception as exc:
@@ -225,66 +210,6 @@ class NodeTracer:
         finally:
             span._close()
             self._write(entry)
-
-    # -- decorator ----------------------------------------------------------
-
-    def wrap(self, node_name: str) -> Callable:
-        """Decorator that wraps a node function with a trace span.
-
-        Usage::
-
-            @tracer.wrap("create_analyst")
-            def create_analyst(state):
-                ...
-        """
-
-        def decorator(fn: Callable) -> Callable:
-            def wrapper(*args: Any, **kwargs: Any) -> Any:
-                with self.trace(node_name) as span:
-                    # Capture input summary from first positional arg
-                    if args:
-                        first = args[0]
-                        if isinstance(first, dict):
-                            keys = list(first.keys())[:10]
-                            span.set_input(f"state keys: {keys}")
-                        elif isinstance(first, str):
-                            span.set_input(first[:200])
-                    try:
-                        result = fn(*args, **kwargs)
-                    except Exception as exc:
-                        span.set_error(str(exc), type(exc).__name__)
-                        raise
-
-                    # Capture output summary
-                    if isinstance(result, dict):
-                        span.set_output(
-                            f"keys: {list(result.keys())[:10]}, "
-                            f"len: {sum(len(str(v)) for v in result.values())}"
-                        )
-                    elif isinstance(result, (str, int, float)):
-                        span.set_output(str(result)[:500])
-                    else:
-                        span.set_output(str(type(result).__name__))
-
-                    # Auto-extract llm_metrics from result dict if present
-                    if isinstance(result, dict) and "llm_metrics" in result:
-                        for m in result["llm_metrics"]:
-                            if isinstance(m, dict):
-                                span.record_llm_call(
-                                    prompt_tokens=int(m.get("prompt_tokens", 0) or 0),
-                                    completion_tokens=int(m.get("completion_tokens", 0) or 0),
-                                    total_tokens=int(m.get("total_tokens", 0) or 0),
-                                    latency_ms=int(m.get("latency_ms", 0) or 0),
-                                    model=str(m.get("model", "")),
-                                )
-
-                    return result
-
-            wrapper.__name__ = fn.__name__
-            wrapper.__doc__ = fn.__doc__
-            return wrapper
-
-        return decorator
 
     # -- persistence --------------------------------------------------------
 
@@ -393,8 +318,3 @@ def get_tracer(task_id: str) -> NodeTracer:
     if task_id not in _tracers:
         _tracers[task_id] = NodeTracer(task_id)
     return _tracers[task_id]
-
-
-def remove_tracer(task_id: str) -> None:
-    """Remove a tracer from the registry (e.g. on task completion)."""
-    _tracers.pop(task_id, None)

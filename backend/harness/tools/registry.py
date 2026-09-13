@@ -34,24 +34,6 @@ class ToolRegistry:
         with self._lock:
             return sorted(self._search.keys())
 
-    def get_best_search(self, preferred_source_types: list[str] | None = None) -> SearchTool | None:
-        """Return the best available search tool for the given source type hints.
-
-        Currently returns the first registered tool.  When multiple backends
-        are registered, this method can route by source_type (e.g. news → Brave,
-        academic → Tavily).
-        """
-        if not self._search:
-            return None
-        # Simple policy: prefer a tool whose name matches a source_type hint
-        if preferred_source_types:
-            for hint in preferred_source_types:
-                for name, tool in self._search.items():
-                    if hint.lower() in name.lower():
-                        return tool
-        # Fallback: return the first registered tool
-        return next(iter(self._search.values()))
-
     # ------------------------------------------------------------------
     # Browse tools
     # ------------------------------------------------------------------

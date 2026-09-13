@@ -33,7 +33,6 @@ DUE_DILIGENCE_MEMORY_CONFIG = MemoryDomainConfig(
         },
         minimum_evidence_quality="medium",
         min_independent_sources=2,
-        unresolved_conflicts_block_stop=True,
     ),
     predicate_aliases={
         "revenue": {"revenue", "revenue amount", "annual revenue", "营收", "收入"},
@@ -44,6 +43,5 @@ DUE_DILIGENCE_MEMORY_CONFIG = MemoryDomainConfig(
         "valuation": {"valuation", "market cap", "估值", "市值"},
         "founded": {"founded", "established", "成立", "创立"},
     },
-    risk_categories={"risk"},
     fallback_category="other",
 )

@@ -1,0 +1,728 @@
+[
+  {
+    "test_case": "well_cited",
+    "expected_status": "pass",
+    "expected_valid": true,
+    "actual_status": "pass",
+    "test_passed": true,
+    "mismatch_reason": "",
+    "score": {
+      "dimension": "source_traceability",
+      "value": 2.0,
+      "max_value": 2,
+      "normalized": 1.0,
+      "status": "pass",
+      "layer": "component",
+      "details": "Citations: 3 unique / 3 total. Density: 1.00/sent. Cited rate: 100% (3/3). Orphans: 0. Malformed: 0. Body bare URLs: 0. Refs URLs: 3. Status: pass — All hard thresholds met",
+      "issues": [],
+      "evidence": {
+        "unique_sources_cited": 3,
+        "total_citation_instances": 3,
+        "citation_instance_density": 1.0,
+        "cited_sentence_rate": 1.0,
+        "cited_factual_sentence_count": 3,
+        "factual_sentence_count": 3,
+        "total_sentence_count": 4,
+        "orphan_citations": 0,
+        "orphan_ids": [],
+        "malformed_citation_count": 0,
+        "malformed_citations": [],
+        "bare_urls_found": 3,
+        "body_bare_urls": 0,
+        "refs_bare_urls": 3,
+        "body_bare_url_list": [],
+        "composite_score": 1.0,
+        "thresholds": {
+          "min_citation_rate": 0.3,
+          "max_body_bare_urls": 0,
+          "max_orphan_count": 0
+        },
+        "threshold_checks": {
+          "has_citations": {
+            "value": true,
+            "threshold": true,
+            "passed": true
+          },
+          "orphan_count": {
+            "value": 0,
+            "threshold": 0,
+            "passed": true
+          },
+          "body_bare_url_count": {
+            "value": 0,
+            "threshold": 0,
+            "passed": true
+          },
+          "malformed_citation_count": {
+            "value": 0,
+            "threshold": 0,
+            "passed": true
+          },
+          "cited_sentence_rate": {
+            "value": 1.0,
+            "threshold": 0.3,
+            "passed": true
+          }
+        },
+        "status_reason": "All hard thresholds met"
+      },
+      "eligible": true
+    }
+  },
+  {
+    "test_case": "no_citations",
+    "expected_status": "fail",
+    "expected_valid": false,
+    "actual_status": "fail",
+    "test_passed": true,
+    "mismatch_reason": "",
+    "score": {
+      "dimension": "source_traceability",
+      "value": 1.0,
+      "max_value": 2,
+      "normalized": 0.5,
+      "status": "fail",
+      "layer": "component",
+      "details": "Citations: 0 unique / 0 total. Density: 0.00/sent. Cited rate: 0% (0/3). Orphans: 0. Malformed: 0. Body bare URLs: 0. Refs URLs: 0. Status: fail — No [Sn] citations found in report",
+      "issues": [
+        "No [Sn] citations found in report"
+      ],
+      "evidence": {
+        "unique_sources_cited": 0,
+        "total_citation_instances": 0,
+        "citation_instance_density": 0.0,
+        "cited_sentence_rate": 0.0,
+        "cited_factual_sentence_count": 0,
+        "factual_sentence_count": 3,
+        "total_sentence_count": 3,
+        "orphan_citations": 0,
+        "orphan_ids": [],
+        "malformed_citation_count": 0,
+        "malformed_citations": [],
+        "bare_urls_found": 0,
+        "body_bare_urls": 0,
+        "refs_bare_urls": 0,
+        "body_bare_url_list": [],
+        "composite_score": 0.5,
+        "thresholds": {
+          "min_citation_rate": 0.3,
+          "max_body_bare_urls": 0,
+          "max_orphan_count": 0
+        },
+        "threshold_checks": {
+          "has_citations": {
+            "value": false,
+            "threshold": true,
+            "passed": false
+          },
+          "orphan_count": {
+            "value": 0,
+            "threshold": 0,
+            "passed": true
+          },
+          "body_bare_url_count": {
+            "value": 0,
+            "threshold": 0,
+            "passed": true
+          },
+          "malformed_citation_count": {
+            "value": 0,
+            "threshold": 0,
+            "passed": true
+          },
+          "cited_sentence_rate": {
+            "value": 0.0,
+            "threshold": 0.3,
+            "passed": false
+          }
+        },
+        "status_reason": "No [Sn] citations found in report"
+      },
+      "eligible": true
+    }
+  },
+  {
+    "test_case": "orphan_citations",
+    "expected_status": "fail",
+    "expected_valid": false,
+    "actual_status": "fail",
+    "test_passed": true,
+    "mismatch_reason": "",
+    "score": {
+      "dimension": "source_traceability",
+      "value": 1.85,
+      "max_value": 2,
+      "normalized": 0.925,
+      "status": "fail",
+      "layer": "component",
+      "details": "Citations: 2 unique / 2 total. Density: 2.00/sent. Cited rate: 100% (1/1). Orphans: 1. Malformed: 0. Body bare URLs: 0. Refs URLs: 0. Status: fail — Orphan citations detected: ['S99']",
+      "issues": [
+        "1 orphan citation(s): ['S99']"
+      ],
+      "evidence": {
+        "unique_sources_cited": 2,
+        "total_citation_instances": 2,
+        "citation_instance_density": 2.0,
+        "cited_sentence_rate": 1.0,
+        "cited_factual_sentence_count": 1,
+        "factual_sentence_count": 1,
+        "total_sentence_count": 1,
+        "orphan_citations": 1,
+        "orphan_ids": [
+          "S99"
+        ],
+        "malformed_citation_count": 0,
+        "malformed_citations": [],
+        "bare_urls_found": 0,
+        "body_bare_urls": 0,
+        "refs_bare_urls": 0,
+        "body_bare_url_list": [],
+        "composite_score": 0.925,
+        "thresholds": {
+          "min_citation_rate": 0.3,
+          "max_body_bare_urls": 0,
+          "max_orphan_count": 0
+        },
+        "threshold_checks": {
+          "has_citations": {
+            "value": true,
+            "threshold": true,
+            "passed": true
+          },
+          "orphan_count": {
+            "value": 1,
+            "threshold": 0,
+            "passed": false
+          },
+          "body_bare_url_count": {
+            "value": 0,
+            "threshold": 0,
+            "passed": true
+          },
+          "malformed_citation_count": {
+            "value": 0,
+            "threshold": 0,
+            "passed": true
+          },
+          "cited_sentence_rate": {
+            "value": 1.0,
+            "threshold": 0.3,
+            "passed": true
+          }
+        },
+        "status_reason": "Orphan citations detected: ['S99']"
+      },
+      "eligible": true
+    }
+  },
+  {
+    "test_case": "registry_gap_S1_S3_cites_S2",
+    "expected_status": "fail",
+    "expected_valid": false,
+    "actual_status": "fail",
+    "test_passed": true,
+    "mismatch_reason": "",
+    "score": {
+      "dimension": "source_traceability",
+      "value": 1.7,
+      "max_value": 2,
+      "normalized": 0.85,
+      "status": "fail",
+      "layer": "component",
+      "details": "Citations: 1 unique / 1 total. Density: 1.00/sent. Cited rate: 100% (1/1). Orphans: 1. Malformed: 0. Body bare URLs: 0. Refs URLs: 0. Status: fail — Orphan citations detected: ['S2']",
+      "issues": [
+        "1 orphan citation(s): ['S2']"
+      ],
+      "evidence": {
+        "unique_sources_cited": 1,
+        "total_citation_instances": 1,
+        "citation_instance_density": 1.0,
+        "cited_sentence_rate": 1.0,
+        "cited_factual_sentence_count": 1,
+        "factual_sentence_count": 1,
+        "total_sentence_count": 1,
+        "orphan_citations": 1,
+        "orphan_ids": [
+          "S2"
+        ],
+        "malformed_citation_count": 0,
+        "malformed_citations": [],
+        "bare_urls_found": 0,
+        "body_bare_urls": 0,
+        "refs_bare_urls": 0,
+        "body_bare_url_list": [],
+        "composite_score": 0.85,
+        "thresholds": {
+          "min_citation_rate": 0.3,
+          "max_body_bare_urls": 0,
+          "max_orphan_count": 0
+        },
+        "threshold_checks": {
+          "has_citations": {
+            "value": true,
+            "threshold": true,
+            "passed": true
+          },
+          "orphan_count": {
+            "value": 1,
+            "threshold": 0,
+            "passed": false
+          },
+          "body_bare_url_count": {
+            "value": 0,
+            "threshold": 0,
+            "passed": true
+          },
+          "malformed_citation_count": {
+            "value": 0,
+            "threshold": 0,
+            "passed": true
+          },
+          "cited_sentence_rate": {
+            "value": 1.0,
+            "threshold": 0.3,
+            "passed": true
+          }
+        },
+        "status_reason": "Orphan citations detected: ['S2']"
+      },
+      "eligible": true
+    }
+  },
+  {
+    "test_case": "duplicate_citations",
+    "expected_status": "pass",
+    "expected_valid": true,
+    "actual_status": "pass",
+    "test_passed": true,
+    "mismatch_reason": "",
+    "score": {
+      "dimension": "source_traceability",
+      "value": 2.0,
+      "max_value": 2,
+      "normalized": 1.0,
+      "status": "pass",
+      "layer": "component",
+      "details": "Citations: 2 unique / 3 total. Density: 1.50/sent. Cited rate: 100% (2/2). Orphans: 0. Malformed: 0. Body bare URLs: 0. Refs URLs: 2. Status: pass — All hard thresholds met",
+      "issues": [],
+      "evidence": {
+        "unique_sources_cited": 2,
+        "total_citation_instances": 3,
+        "citation_instance_density": 1.5,
+        "cited_sentence_rate": 1.0,
+        "cited_factual_sentence_count": 2,
+        "factual_sentence_count": 2,
+        "total_sentence_count": 2,
+        "orphan_citations": 0,
+        "orphan_ids": [],
+        "malformed_citation_count": 0,
+        "malformed_citations": [],
+        "bare_urls_found": 2,
+        "body_bare_urls": 0,
+        "refs_bare_urls": 2,
+        "body_bare_url_list": [],
+        "composite_score": 1.0,
+        "thresholds": {
+          "min_citation_rate": 0.3,
+          "max_body_bare_urls": 0,
+          "max_orphan_count": 0
+        },
+        "threshold_checks": {
+          "has_citations": {
+            "value": true,
+            "threshold": true,
+            "passed": true
+          },
+          "orphan_count": {
+            "value": 0,
+            "threshold": 0,
+            "passed": true
+          },
+          "body_bare_url_count": {
+            "value": 0,
+            "threshold": 0,
+            "passed": true
+          },
+          "malformed_citation_count": {
+            "value": 0,
+            "threshold": 0,
+            "passed": true
+          },
+          "cited_sentence_rate": {
+            "value": 1.0,
+            "threshold": 0.3,
+            "passed": true
+          }
+        },
+        "status_reason": "All hard thresholds met"
+      },
+      "eligible": true
+    }
+  },
+  {
+    "test_case": "body_bare_url",
+    "expected_status": "fail",
+    "expected_valid": false,
+    "actual_status": "fail",
+    "test_passed": true,
+    "mismatch_reason": "",
+    "score": {
+      "dimension": "source_traceability",
+      "value": 1.9,
+      "max_value": 2,
+      "normalized": 0.95,
+      "status": "fail",
+      "layer": "component",
+      "details": "Citations: 1 unique / 1 total. Density: 0.50/sent. Cited rate: 50% (1/2). Orphans: 0. Malformed: 0. Body bare URLs: 1. Refs URLs: 0. Status: fail — Body bare URLs detected (1); max allowed is 0",
+      "issues": [
+        "1 bare URL(s) in body: ['https://example.com/news']"
+      ],
+      "evidence": {
+        "unique_sources_cited": 1,
+        "total_citation_instances": 1,
+        "citation_instance_density": 0.5,
+        "cited_sentence_rate": 0.5,
+        "cited_factual_sentence_count": 1,
+        "factual_sentence_count": 2,
+        "total_sentence_count": 2,
+        "orphan_citations": 0,
+        "orphan_ids": [],
+        "malformed_citation_count": 0,
+        "malformed_citations": [],
+        "bare_urls_found": 1,
+        "body_bare_urls": 1,
+        "refs_bare_urls": 0,
+        "body_bare_url_list": [
+          "https://example.com/news"
+        ],
+        "composite_score": 0.95,
+        "thresholds": {
+          "min_citation_rate": 0.3,
+          "max_body_bare_urls": 0,
+          "max_orphan_count": 0
+        },
+        "threshold_checks": {
+          "has_citations": {
+            "value": true,
+            "threshold": true,
+            "passed": true
+          },
+          "orphan_count": {
+            "value": 0,
+            "threshold": 0,
+            "passed": true
+          },
+          "body_bare_url_count": {
+            "value": 1,
+            "threshold": 0,
+            "passed": false
+          },
+          "malformed_citation_count": {
+            "value": 0,
+            "threshold": 0,
+            "passed": true
+          },
+          "cited_sentence_rate": {
+            "value": 0.5,
+            "threshold": 0.3,
+            "passed": true
+          }
+        },
+        "status_reason": "Body bare URLs detected (1); max allowed is 0"
+      },
+      "eligible": true
+    }
+  },
+  {
+    "test_case": "url_only_in_references",
+    "expected_status": "fail",
+    "expected_valid": false,
+    "actual_status": "fail",
+    "test_passed": true,
+    "mismatch_reason": "",
+    "score": {
+      "dimension": "source_traceability",
+      "value": 1.0,
+      "max_value": 2,
+      "normalized": 0.5,
+      "status": "fail",
+      "layer": "component",
+      "details": "Citations: 0 unique / 0 total. Density: 0.00/sent. Cited rate: 0% (0/1). Orphans: 0. Malformed: 0. Body bare URLs: 0. Refs URLs: 1. Status: fail — No [Sn] citations found in report",
+      "issues": [
+        "No [Sn] citations found in report"
+      ],
+      "evidence": {
+        "unique_sources_cited": 0,
+        "total_citation_instances": 0,
+        "citation_instance_density": 0.0,
+        "cited_sentence_rate": 0.0,
+        "cited_factual_sentence_count": 0,
+        "factual_sentence_count": 1,
+        "total_sentence_count": 1,
+        "orphan_citations": 0,
+        "orphan_ids": [],
+        "malformed_citation_count": 0,
+        "malformed_citations": [],
+        "bare_urls_found": 1,
+        "body_bare_urls": 0,
+        "refs_bare_urls": 1,
+        "body_bare_url_list": [],
+        "composite_score": 0.5,
+        "thresholds": {
+          "min_citation_rate": 0.3,
+          "max_body_bare_urls": 0,
+          "max_orphan_count": 0
+        },
+        "threshold_checks": {
+          "has_citations": {
+            "value": false,
+            "threshold": true,
+            "passed": false
+          },
+          "orphan_count": {
+            "value": 0,
+            "threshold": 0,
+            "passed": true
+          },
+          "body_bare_url_count": {
+            "value": 0,
+            "threshold": 0,
+            "passed": true
+          },
+          "malformed_citation_count": {
+            "value": 0,
+            "threshold": 0,
+            "passed": true
+          },
+          "cited_sentence_rate": {
+            "value": 0.0,
+            "threshold": 0.3,
+            "passed": false
+          }
+        },
+        "status_reason": "No [Sn] citations found in report"
+      },
+      "eligible": true
+    }
+  },
+  {
+    "test_case": "malformed_citation_Sx",
+    "expected_status": "fail",
+    "expected_valid": false,
+    "actual_status": "fail",
+    "test_passed": true,
+    "mismatch_reason": "",
+    "score": {
+      "dimension": "source_traceability",
+      "value": 1.94,
+      "max_value": 2,
+      "normalized": 0.97,
+      "status": "fail",
+      "layer": "component",
+      "details": "Citations: 1 unique / 1 total. Density: 1.00/sent. Cited rate: 100% (1/1). Orphans: 0. Malformed: 1. Body bare URLs: 0. Refs URLs: 0. Status: fail — Malformed citations detected: ['[Sx]']",
+      "issues": [
+        "1 malformed citation(s): ['[Sx]']"
+      ],
+      "evidence": {
+        "unique_sources_cited": 1,
+        "total_citation_instances": 1,
+        "citation_instance_density": 1.0,
+        "cited_sentence_rate": 1.0,
+        "cited_factual_sentence_count": 1,
+        "factual_sentence_count": 1,
+        "total_sentence_count": 1,
+        "orphan_citations": 0,
+        "orphan_ids": [],
+        "malformed_citation_count": 1,
+        "malformed_citations": [
+          {
+            "match": "[Sx]",
+            "type": "malformed",
+            "description": "malformed citation: [Sx]"
+          }
+        ],
+        "bare_urls_found": 0,
+        "body_bare_urls": 0,
+        "refs_bare_urls": 0,
+        "body_bare_url_list": [],
+        "composite_score": 0.97,
+        "thresholds": {
+          "min_citation_rate": 0.3,
+          "max_body_bare_urls": 0,
+          "max_orphan_count": 0
+        },
+        "threshold_checks": {
+          "has_citations": {
+            "value": true,
+            "threshold": true,
+            "passed": true
+          },
+          "orphan_count": {
+            "value": 0,
+            "threshold": 0,
+            "passed": true
+          },
+          "body_bare_url_count": {
+            "value": 0,
+            "threshold": 0,
+            "passed": true
+          },
+          "malformed_citation_count": {
+            "value": 1,
+            "threshold": 0,
+            "passed": false
+          },
+          "cited_sentence_rate": {
+            "value": 1.0,
+            "threshold": 0.3,
+            "passed": true
+          }
+        },
+        "status_reason": "Malformed citations detected: ['[Sx]']"
+      },
+      "eligible": true
+    }
+  },
+  {
+    "test_case": "repeated_valid_citation",
+    "expected_status": "pass",
+    "expected_valid": true,
+    "actual_status": "pass",
+    "test_passed": true,
+    "mismatch_reason": "",
+    "score": {
+      "dimension": "source_traceability",
+      "value": 2.0,
+      "max_value": 2,
+      "normalized": 1.0,
+      "status": "pass",
+      "layer": "component",
+      "details": "Citations: 2 unique / 3 total. Density: 1.00/sent. Cited rate: 100% (3/3). Orphans: 0. Malformed: 0. Body bare URLs: 0. Refs URLs: 2. Status: pass — All hard thresholds met",
+      "issues": [],
+      "evidence": {
+        "unique_sources_cited": 2,
+        "total_citation_instances": 3,
+        "citation_instance_density": 1.0,
+        "cited_sentence_rate": 1.0,
+        "cited_factual_sentence_count": 3,
+        "factual_sentence_count": 3,
+        "total_sentence_count": 3,
+        "orphan_citations": 0,
+        "orphan_ids": [],
+        "malformed_citation_count": 0,
+        "malformed_citations": [],
+        "bare_urls_found": 2,
+        "body_bare_urls": 0,
+        "refs_bare_urls": 2,
+        "body_bare_url_list": [],
+        "composite_score": 1.0,
+        "thresholds": {
+          "min_citation_rate": 0.3,
+          "max_body_bare_urls": 0,
+          "max_orphan_count": 0
+        },
+        "threshold_checks": {
+          "has_citations": {
+            "value": true,
+            "threshold": true,
+            "passed": true
+          },
+          "orphan_count": {
+            "value": 0,
+            "threshold": 0,
+            "passed": true
+          },
+          "body_bare_url_count": {
+            "value": 0,
+            "threshold": 0,
+            "passed": true
+          },
+          "malformed_citation_count": {
+            "value": 0,
+            "threshold": 0,
+            "passed": true
+          },
+          "cited_sentence_rate": {
+            "value": 1.0,
+            "threshold": 0.3,
+            "passed": true
+          }
+        },
+        "status_reason": "All hard thresholds met"
+      },
+      "eligible": true
+    }
+  },
+  {
+    "test_case": "empty_report",
+    "expected_status": "fail",
+    "expected_valid": false,
+    "actual_status": "fail",
+    "test_passed": true,
+    "mismatch_reason": "",
+    "score": {
+      "dimension": "source_traceability",
+      "value": 1.0,
+      "max_value": 2,
+      "normalized": 0.5,
+      "status": "fail",
+      "layer": "component",
+      "details": "Citations: 0 unique / 0 total. Density: 0.00/sent. Cited rate: 0% (0/1). Orphans: 0. Malformed: 0. Body bare URLs: 0. Refs URLs: 0. Status: fail — No [Sn] citations found in report",
+      "issues": [
+        "No [Sn] citations found in report"
+      ],
+      "evidence": {
+        "unique_sources_cited": 0,
+        "total_citation_instances": 0,
+        "citation_instance_density": 0.0,
+        "cited_sentence_rate": 0.0,
+        "cited_factual_sentence_count": 0,
+        "factual_sentence_count": 1,
+        "total_sentence_count": 0,
+        "orphan_citations": 0,
+        "orphan_ids": [],
+        "malformed_citation_count": 0,
+        "malformed_citations": [],
+        "bare_urls_found": 0,
+        "body_bare_urls": 0,
+        "refs_bare_urls": 0,
+        "body_bare_url_list": [],
+        "composite_score": 0.5,
+        "thresholds": {
+          "min_citation_rate": 0.3,
+          "max_body_bare_urls": 0,
+          "max_orphan_count": 0
+        },
+        "threshold_checks": {
+          "has_citations": {
+            "value": false,
+            "threshold": true,
+            "passed": false
+          },
+          "orphan_count": {
+            "value": 0,
+            "threshold": 0,
+            "passed": true
+          },
+          "body_bare_url_count": {
+            "value": 0,
+            "threshold": 0,
+            "passed": true
+          },
+          "malformed_citation_count": {
+            "value": 0,
+            "threshold": 0,
+            "passed": true
+          },
+          "cited_sentence_rate": {
+            "value": 0.0,
+            "threshold": 0.3,
+            "passed": false
+          }
+        },
+        "status_reason": "No [Sn] citations found in report"
+      },
+      "eligible": true
+    }
+  }
+]

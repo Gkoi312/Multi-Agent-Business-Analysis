@@ -1,0 +1,255 @@
+{
+  "A": {
+    "label": "A-no-compression",
+    "company": "拼多多",
+    "focus": "电商AI",
+    "use_compression": false,
+    "elapsed_sec": 101.5,
+    "elapsed_min": 1.69,
+    "total_llm_tokens": 81021,
+    "by_node": {
+      "report.create_analyst": {
+        "calls": 1,
+        "prompt_tokens": 2371,
+        "completion_tokens": 183,
+        "total_tokens": 2554,
+        "latency_ms": 2780
+      },
+      "interview.ask_question": {
+        "calls": 6,
+        "prompt_tokens": 13104,
+        "completion_tokens": 1702,
+        "total_tokens": 14806,
+        "latency_ms": 28855
+      },
+      "interview.search_query": {
+        "calls": 6,
+        "prompt_tokens": 12838,
+        "completion_tokens": 732,
+        "total_tokens": 13570,
+        "latency_ms": 12164
+      },
+      "interview.generate_answer": {
+        "calls": 6,
+        "prompt_tokens": 16915,
+        "completion_tokens": 5917,
+        "total_tokens": 22832,
+        "latency_ms": 82572
+      },
+      "interview.compress": {
+        "calls": 1,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "latency_ms": 0
+      },
+      "interview.update_memory": {
+        "calls": 1,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "latency_ms": 0
+      },
+      "interview.write_section": {
+        "calls": 2,
+        "prompt_tokens": 16497,
+        "completion_tokens": 1768,
+        "total_tokens": 18265,
+        "latency_ms": 18459
+      },
+      "report.write_conclusion": {
+        "calls": 1,
+        "prompt_tokens": 2061,
+        "completion_tokens": 286,
+        "total_tokens": 2347,
+        "latency_ms": 4464
+      },
+      "report.write_introduction": {
+        "calls": 1,
+        "prompt_tokens": 2061,
+        "completion_tokens": 176,
+        "total_tokens": 2237,
+        "latency_ms": 2941
+      },
+      "report.write_report": {
+        "calls": 1,
+        "prompt_tokens": 2625,
+        "completion_tokens": 1785,
+        "total_tokens": 4410,
+        "latency_ms": 14539
+      }
+    },
+    "ask_q_series": [
+      1090,
+      2066,
+      3145,
+      1128,
+      2112,
+      3563
+    ],
+    "compress_events": [
+      {
+        "node": "interview.compress",
+        "latency_ms": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "facts_extracted": 0,
+        "baseline": true
+      }
+    ],
+    "total_answer_tokens_before": 0,
+    "total_compressed_tokens_after": 0,
+    "compression_ratio": null,
+    "facts_extracted": 0
+  },
+  "B": {
+    "label": "B-with-compression",
+    "company": "拼多多",
+    "focus": "电商AI",
+    "use_compression": true,
+    "elapsed_sec": 150.7,
+    "elapsed_min": 2.51,
+    "total_llm_tokens": 116746,
+    "by_node": {
+      "report.create_analyst": {
+        "calls": 1,
+        "prompt_tokens": 2371,
+        "completion_tokens": 185,
+        "total_tokens": 2556,
+        "latency_ms": 2647
+      },
+      "interview.ask_question": {
+        "calls": 6,
+        "prompt_tokens": 15731,
+        "completion_tokens": 2832,
+        "total_tokens": 18563,
+        "latency_ms": 51148
+      },
+      "interview.search_query": {
+        "calls": 6,
+        "prompt_tokens": 16593,
+        "completion_tokens": 712,
+        "total_tokens": 17305,
+        "latency_ms": 11719
+      },
+      "interview.generate_answer": {
+        "calls": 6,
+        "prompt_tokens": 22526,
+        "completion_tokens": 5765,
+        "total_tokens": 28291,
+        "latency_ms": 88929
+      },
+      "interview.compress": {
+        "calls": 6,
+        "prompt_tokens": 10004,
+        "completion_tokens": 1401,
+        "total_tokens": 11405,
+        "latency_ms": 45050
+      },
+      "interview.update_memory": {
+        "calls": 4,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "latency_ms": 13
+      },
+      "interview.write_section": {
+        "calls": 2,
+        "prompt_tokens": 35933,
+        "completion_tokens": 2468,
+        "total_tokens": 38401,
+        "latency_ms": 26919
+      },
+      "report.write_conclusion": {
+        "calls": 1,
+        "prompt_tokens": 2761,
+        "completion_tokens": 218,
+        "total_tokens": 2979,
+        "latency_ms": 3717
+      },
+      "report.write_introduction": {
+        "calls": 1,
+        "prompt_tokens": 2761,
+        "completion_tokens": 206,
+        "total_tokens": 2967,
+        "latency_ms": 3309
+      },
+      "report.write_report": {
+        "calls": 1,
+        "prompt_tokens": 3325,
+        "completion_tokens": 2359,
+        "total_tokens": 5684,
+        "latency_ms": 18893
+      }
+    },
+    "ask_q_series": [
+      1092,
+      2444,
+      4418,
+      1128,
+      2639,
+      4010
+    ],
+    "compress_events": [
+      {
+        "node": "interview.compress",
+        "latency_ms": 8233,
+        "prompt_tokens": 1008,
+        "completion_tokens": 249,
+        "total_tokens": 1257,
+        "compression_ratio": 0.247,
+        "facts_extracted": 8
+      },
+      {
+        "node": "interview.compress",
+        "latency_ms": 7813,
+        "prompt_tokens": 2313,
+        "completion_tokens": 238,
+        "total_tokens": 2551,
+        "compression_ratio": 0.103,
+        "facts_extracted": 8
+      },
+      {
+        "node": "interview.compress",
+        "latency_ms": 8199,
+        "prompt_tokens": 2851,
+        "completion_tokens": 291,
+        "total_tokens": 3142,
+        "compression_ratio": 0.102,
+        "facts_extracted": 8
+      },
+      {
+        "node": "interview.compress",
+        "latency_ms": 6801,
+        "prompt_tokens": 1250,
+        "completion_tokens": 206,
+        "total_tokens": 1456,
+        "compression_ratio": 0.165,
+        "facts_extracted": 8
+      },
+      {
+        "node": "interview.compress",
+        "latency_ms": 5969,
+        "prompt_tokens": 1332,
+        "completion_tokens": 163,
+        "total_tokens": 1495,
+        "compression_ratio": 0.122,
+        "facts_extracted": 6
+      },
+      {
+        "node": "interview.compress",
+        "latency_ms": 8035,
+        "prompt_tokens": 1250,
+        "completion_tokens": 254,
+        "total_tokens": 1504,
+        "compression_ratio": 0.203,
+        "facts_extracted": 8
+      }
+    ],
+    "total_answer_tokens_before": 10004,
+    "total_compressed_tokens_after": 1401,
+    "compression_ratio": 0.14,
+    "facts_extracted": 46
+  }
+}
