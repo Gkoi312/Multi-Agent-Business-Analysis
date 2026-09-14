@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
@@ -49,7 +49,7 @@ export function TasksPage() {
         <div className="section-header">
           <div>
             <h1>我的任务</h1>
-            <p className="muted">跟踪进行中、等待反馈、失败和已完成的任务。</p>
+            <p className="muted">跟踪进行中、等待反馈、失败和已完成的尽调任务。</p>
           </div>
           <div className="button-row">
             {returnTo ? (
@@ -66,7 +66,7 @@ export function TasksPage() {
             </Link>
           </div>
         </div>
-        {loading ? <p>加载任务中…</p> : null}
+        {loading ? <p>加载任务中...</p> : null}
         {error ? <p className="error-text">{error}</p> : null}
         {!loading && !tasks.length ? <p className="muted">暂无任务。</p> : null}
         <div className="task-grid">

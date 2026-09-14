@@ -10,7 +10,7 @@ wheels/
 .ruff_cache/
 .coverage
 htmlcov/
-docs/
+
 references/
 # Virtual environments
 .venv
@@ -27,7 +27,9 @@ users.db
 logs/
 archive/
 *.log
-docs/
+docs/*
+!docs/images/
+!docs/images/*.png
 
 .cursor/
 generated_report/

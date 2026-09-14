@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../api";
@@ -7,20 +7,16 @@ import type { Task, TaskMetrics } from "../types";
 
 const ACTIVE_STATUSES = new Set(["pending", "running_generation", "running_feedback"]);
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 function getStatusLabel(status: string) {
-  const statusLabels: Record<string, string> = {
+  const labels: Record<string, string> = {
     pending: "待处理",
     running_generation: "生成中",
     awaiting_feedback: "等待反馈",
-    running_feedback: "处理反馈中",
+    running_feedback: "研究中",
     failed: "失败",
     completed: "已完成",
   };
-  return statusLabels[status] ?? status;
+  return labels[status] ?? status;
 }
 
 function getTaskTypeLabel(taskType: string) {
@@ -30,30 +26,19 @@ function getTaskTypeLabel(taskType: string) {
   return labels[taskType] ?? taskType;
 }
 
-/** Map status + metrics into a readable pipeline stage description. */
 function getProgressDescription(status: string, metrics: TaskMetrics | null): string {
-  if (status === "pending") return "正在创建任务…";
-  if (status === "running_generation") return "正在分析公司类型、加载技能库、生成分析师…";
-  if (status === "awaiting_feedback") return "请审核分析师阵容，提交反馈后继续。";
+  if (status === "pending") return "正在创建任务...";
+  if (status === "running_generation") return "正在加载技能包并生成分析师团队...";
+  if (status === "awaiting_feedback") return "请审核分析师阵容，提交空反馈即可继续生成报告。";
   if (status === "running_feedback") {
-    if (!metrics) return "正在执行调研…";
-    const nodes = Object.keys(metrics.by_node);
-    const hasPlan = nodes.some((n) => n.includes("plan"));
-    const hasInterview = nodes.some((n) => n.includes("interview") || n.includes("conduct"));
-    const hasWrite = nodes.some((n) => n.includes("write"));
-    const hasReview = nodes.some((n) => n.includes("review") || n.includes("finalize"));
-    if (hasReview) return "正在审核最终报告…";
-    if (hasWrite) return "正在撰写调研报告…";
-    if (hasInterview) return `正在进行专家访谈（已调用 ${metrics.call_count} 次 LLM）…`;
-    if (hasPlan) return "正在执行调研计划…";
-    return "正在执行调研…";
+    const calls = metrics?.call_count ?? 0;
+    return calls > 0 ? `正在执行联网研究，已调用 ${calls} 次 LLM...` : "正在执行联网研究...";
   }
   if (status === "completed") return "报告已生成。";
-  if (status === "failed") return "任务失败。";
+  if (status === "failed") return "任务失败，可尝试从 checkpoint 重试。";
   return "";
 }
 
-/** Which pipeline step index is currently active. */
 function activeStepIndex(status: string): number {
   if (status === "pending" || status === "running_generation") return 0;
   if (status === "awaiting_feedback") return 1;
@@ -62,7 +47,6 @@ function activeStepIndex(status: string): number {
   return -1;
 }
 
-/** Format seconds into m:ss or h:mm:ss. */
 function formatElapsed(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
   const h = Math.floor(s / 3600);
@@ -73,30 +57,20 @@ function formatElapsed(seconds: number): string {
   return `${m}:${pad(sec)}`;
 }
 
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
-
-const PIPELINE_STEPS = [
-  { label: "生成分析师", icon: "🧠" },
-  { label: "等待反馈", icon: "💬" },
-  { label: "执行调研", icon: "🔍" },
-  { label: "完成", icon: "✅" },
-];
+const PIPELINE_STEPS = ["生成分析师", "等待反馈", "执行研究", "完成报告"];
 
 function PipelineStepper({ status }: { status: string }) {
   const active = activeStepIndex(status);
-
   return (
     <div className="pipeline-stepper">
-      {PIPELINE_STEPS.map((step, i) => {
+      {PIPELINE_STEPS.map((label, index) => {
         let cls = "pipeline-step";
-        if (i < active) cls += " is-done";
-        else if (i === active) cls += " is-active";
+        if (index < active) cls += " is-done";
+        else if (index === active) cls += " is-active";
         return (
-          <div className={cls} key={step.label}>
-            <span className="pipeline-step-icon">{step.icon}</span>
-            <span className="pipeline-step-label">{step.label}</span>
+          <div className={cls} key={label}>
+            <span className="pipeline-step-icon">{index + 1}</span>
+            <span className="pipeline-step-label">{label}</span>
           </div>
         );
       })}
@@ -104,11 +78,24 @@ function PipelineStepper({ status }: { status: string }) {
   );
 }
 
+function ElapsedBadge({ startedAt }: { startedAt: number }) {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    const tick = () => setElapsed(Date.now() / 1000 - startedAt);
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [startedAt]);
+
+  return <span className="elapsed-badge">{formatElapsed(elapsed)}</span>;
+}
+
 function AnalystSkeleton({ count }: { count: number }) {
   return (
     <div className="task-grid">
-      {Array.from({ length: count }).map((_, i) => (
-        <article className="panel nested-panel skeleton-card" key={i}>
+      {Array.from({ length: count }).map((_, index) => (
+        <article className="panel nested-panel skeleton-card" key={index}>
           <div className="skeleton-line skeleton-title" />
           <div className="skeleton-line skeleton-text" />
           <div className="skeleton-line skeleton-text short" />
@@ -118,27 +105,6 @@ function AnalystSkeleton({ count }: { count: number }) {
     </div>
   );
 }
-
-function ElapsedBadge({ startedAt }: { startedAt: number }) {
-  const [elapsed, setElapsed] = useState(0);
-
-  useEffect(() => {
-    const tick = () => setElapsed((Date.now() / 1000) - startedAt);
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [startedAt]);
-
-  return (
-    <span className="elapsed-badge">
-      {formatElapsed(elapsed)}
-    </span>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
 
 export function TaskDetailPage() {
   const navigate = useNavigate();
@@ -150,14 +116,9 @@ export function TaskDetailPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const locationState = location.state as
-    | { fromTasks?: boolean; returnTo?: string; returnLabel?: string }
-    | null;
-
+  const locationState = location.state as { returnTo?: string; returnLabel?: string } | null;
   const taskRef = useRef<Task | null>(null);
   taskRef.current = task;
-
-  const isRunning = task ? ACTIVE_STATUSES.has(task.status) : false;
 
   useEffect(() => {
     if (!taskId) {
@@ -176,7 +137,7 @@ export function TaskDetailPage() {
         ]);
         if (!cancelled) {
           setTask(nextTask);
-          if (nextMetrics) setMetrics(nextMetrics);
+          setMetrics(nextMetrics);
           setError("");
         }
       } catch (nextError) {
@@ -184,9 +145,7 @@ export function TaskDetailPage() {
           setError(nextError instanceof Error ? nextError.message : "加载任务失败");
         }
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        if (!cancelled) setLoading(false);
       }
     };
 
@@ -194,9 +153,7 @@ export function TaskDetailPage() {
     void load();
     const interval = window.setInterval(() => {
       const current = taskRef.current;
-      if (current && !ACTIVE_STATUSES.has(current.status)) {
-        return;
-      }
+      if (current && !ACTIVE_STATUSES.has(current.status)) return;
       void load();
     }, 2500);
 
@@ -240,21 +197,16 @@ export function TaskDetailPage() {
   useEffect(() => {
     if (!task || task.status !== "completed") return;
     const hasFile = Boolean(task.docx_path?.trim() || task.pdf_path?.trim());
-    if (!hasFile) return;
-    navigate(`/tasks/${task.id}/report`, { replace: true });
+    if (hasFile) navigate(`/tasks/${task.id}/report`, { replace: true });
   }, [task, navigate]);
-
-  // Derived progress info
-  const progressDesc = task ? getProgressDescription(task.status, metrics) : "";
 
   return (
     <RequireAuth>
       <section className="panel">
-        {loading ? <p>加载任务中…</p> : null}
+        {loading ? <p>加载任务中...</p> : null}
         {error ? <p className="error-text">{error}</p> : null}
         {task ? (
           <>
-            {/* ── Header ── */}
             <div className="section-header">
               <div>
                 <h1>{task.company_name}</h1>
@@ -266,69 +218,42 @@ export function TaskDetailPage() {
               <div className="button-row">
                 <button
                   className="secondary-button"
-                  onClick={() => {
-                    if (window.history.length > 1) {
-                      navigate(-1);
-                      return;
-                    }
-                    navigate(locationState?.returnTo ?? "/tasks");
-                  }}
+                  onClick={() => navigate(locationState?.returnTo ?? "/tasks")}
                   type="button"
                 >
                   返回
                 </button>
-                <Link
-                  className="secondary-button link-button"
-                  state={{ returnTo: location.pathname, returnLabel: `返回 ${task.company_name}` }}
-                  to="/tasks"
-                >
+                <Link className="secondary-button link-button" to="/tasks">
                   全部任务
                 </Link>
                 <Link className="primary-button link-button" to="/dashboard">
                   新建报告
                 </Link>
-                <span className={`status-pill status-${task.status}`}>
-                  {getStatusLabel(task.status)}
-                </span>
+                <span className={`status-pill status-${task.status}`}>{getStatusLabel(task.status)}</span>
               </div>
             </div>
 
-            {/* ── Pipeline stepper + progress ── */}
             <PipelineStepper status={task.status} />
 
-            {isRunning ? (
+            {ACTIVE_STATUSES.has(task.status) ? (
               <div className="progress-banner">
                 <span className="progress-pulse" />
-                <span className="progress-desc">{progressDesc}</span>
+                <span className="progress-desc">{getProgressDescription(task.status, metrics)}</span>
                 <ElapsedBadge startedAt={task.created_at} />
               </div>
             ) : null}
 
-            {/* ── Task info ── */}
             <section className="subsection">
               <h2>任务信息</h2>
               <div className="task-meta-grid">
                 <div><strong>类型：</strong> {getTaskTypeLabel(task.task_type)}</div>
                 <div><strong>分析师数量：</strong> {task.max_analysts}</div>
                 <div><strong>关注点：</strong> {task.focus || "默认"}</div>
-                {task.target_role ? (
-                  <div><strong>目标角色：</strong> {task.target_role}</div>
-                ) : null}
-                {task.report_review_status ? (
-                  <div>
-                    <strong>审核：</strong>{" "}
-                    <span className={`status-pill status-${task.report_review_status === "pass" ? "completed" : "failed"}`}>
-                      {task.report_review_status}
-                    </span>
-                  </div>
-                ) : null}
+                {task.target_role ? <div><strong>目标角色：</strong> {task.target_role}</div> : null}
+                {task.report_review_status ? <div><strong>审核：</strong> {task.report_review_status}</div> : null}
               </div>
-              {task.report_review_summary && task.report_review_status !== "pass" ? (
-                <p className="muted" style={{ marginTop: "0.5rem" }}>{task.report_review_summary}</p>
-              ) : null}
             </section>
 
-            {/* ── Analysts ── */}
             <section className="subsection">
               <h2>分析师阵容</h2>
               {task.status === "running_generation" || (task.status === "pending" && !task.analysts_preview.length) ? (
@@ -340,22 +265,20 @@ export function TaskDetailPage() {
                   {task.analysts_preview.map((analyst) => (
                     <article className="panel nested-panel" key={`${analyst.name}-${analyst.role}`}>
                       <h3>{analyst.name || "未命名分析师"}</h3>
-                      <p><strong>角色：</strong> {analyst.role || "—"}</p>
-                      <p><strong>所属：</strong> {analyst.affiliation || "—"}</p>
-                      <p>{analyst.description || "无描述。"}</p>
+                      <p><strong>角色：</strong> {analyst.role || "未指定"}</p>
+                      <p><strong>所属：</strong> {analyst.affiliation || "未指定"}</p>
+                      <p>{analyst.description || "暂无描述。"}</p>
                     </article>
                   ))}
                 </div>
               )}
             </section>
 
-            {/* ── Feedback ── */}
             {task.status === "awaiting_feedback" ? (
               <section className="subsection">
-                <h2>人工反馈 · 分析师</h2>
+                <h2>人工反馈</h2>
                 <p className="muted">
-                  对分析师阵容或研究方向添加意见。非空反馈将重新生成分析师。
-                  提交空反馈则继续报告生成，不做更改。
+                  对分析师阵容或研究方向添加意见。提交空反馈会继续执行研究和报告生成。
                 </p>
                 <form className="form-stack" onSubmit={handleFeedbackSubmit}>
                   <label>
@@ -363,119 +286,38 @@ export function TaskDetailPage() {
                     <textarea
                       className="feedback-input"
                       onChange={(event) => setFeedback(event.target.value)}
-                      placeholder="例如：增加财务尽调角度，或扩展供应链风险方面的访谈要点…"
+                      placeholder="例如：增加财务尽调视角，或扩展供应链风险方面的访谈要点。"
                       value={feedback}
                     />
                   </label>
                   <div className="button-row">
                     <button className="primary-button" disabled={submitting} type="submit">
-                      {submitting ? "提交中…" : "提交反馈"}
+                      {submitting ? "提交中..." : "提交反馈"}
                     </button>
                   </div>
                 </form>
               </section>
             ) : null}
 
-            {task.status === "running_feedback" ? (
-              <section className="subsection">
-                <h2>正在执行调研</h2>
-                {task.last_feedback?.trim() ? (
-                  <label>
-                    已提交的反馈
-                    <textarea className="feedback-input" readOnly value={task.last_feedback} />
-                  </label>
-                ) : null}
-                {metrics ? (
-                  <div className="task-meta-grid" style={{ marginTop: "0.75rem" }}>
-                    <div><strong>总耗时：</strong> {(metrics.total_latency_ms / 1000).toFixed(1)}s</div>
-                    <div><strong>LLM 调用：</strong> {metrics.call_count}</div>
-                    <div><strong>总 Token：</strong> {metrics.total_tokens.toLocaleString()}</div>
-                  </div>
-                ) : null}
-              </section>
-            ) : null}
-
-            {/* ── Retry ── */}
-            {task.status === "failed" ? (
-              <section className="subsection">
-                <h2>任务失败</h2>
-                {task.error ? <p className="error-text">{task.error}</p> : null}
-                {task.failed_stage ? <p className="muted">失败阶段：{task.failed_stage}</p> : null}
-                <div className="button-row">
-                  <button className="secondary-button" disabled={submitting} onClick={handleRetry} type="button">
-                    重试任务
-                  </button>
-                </div>
-              </section>
-            ) : null}
-
-            {/* ── Metrics (completed only) ── */}
-            {task.status === "completed" && metrics ? (
+            {task.status === "running_feedback" && metrics ? (
               <section className="subsection">
                 <h2>执行指标</h2>
                 <div className="task-meta-grid">
                   <div><strong>总耗时：</strong> {(metrics.total_latency_ms / 1000).toFixed(1)}s</div>
                   <div><strong>LLM 调用：</strong> {metrics.call_count}</div>
-                  <div><strong>输入 Token：</strong> {metrics.total_prompt_tokens.toLocaleString()}</div>
-                  <div><strong>输出 Token：</strong> {metrics.total_completion_tokens.toLocaleString()}</div>
                   <div><strong>总 Token：</strong> {metrics.total_tokens.toLocaleString()}</div>
-                  <div>
-                    <strong>预估成本：</strong> ${metrics.estimated_cost_usd.toFixed(4)}
-                    {metrics.over_budget ? <span className="error-text"> ⚠️ 超出预算</span> : null}
-                  </div>
                 </div>
-                {Object.keys(metrics.by_node).length > 0 ? (
-                  <details style={{ marginTop: "0.75rem" }}>
-                    <summary style={{ cursor: "pointer", fontWeight: 600 }}>
-                      节点明细（{Object.keys(metrics.by_node).length} 个节点）
-                    </summary>
-                    <div style={{ marginTop: "0.5rem", overflowX: "auto" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.88rem" }}>
-                        <thead>
-                          <tr style={{ borderBottom: "2px solid #e5e7eb", textAlign: "left" }}>
-                            <th style={{ padding: "6px 8px" }}>节点</th>
-                            <th style={{ padding: "6px 8px", textAlign: "right" }}>调用次数</th>
-                            <th style={{ padding: "6px 8px", textAlign: "right" }}>耗时</th>
-                            <th style={{ padding: "6px 8px", textAlign: "right" }}>Token</th>
-                            <th style={{ padding: "6px 8px", textAlign: "right" }}>成本</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {Object.entries(metrics.by_node)
-                            .filter(([n]) => !n.startsWith("_total"))
-                            .sort(([, a], [, b]) => b.total_duration_ms - a.total_duration_ms)
-                            .map(([node, stats]) => (
-                              <tr key={node} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                                <td style={{ padding: "6px 8px" }}>
-                                  <strong>{node}</strong>
-                                  {stats.errors > 0 ? <span style={{ color: "#dc2626", marginLeft: "6px" }}>⚠️</span> : null}
-                                </td>
-                                <td style={{ padding: "6px 8px", textAlign: "right" }}>{stats.calls}</td>
-                                <td style={{ padding: "6px 8px", textAlign: "right" }}>{(stats.total_duration_ms / 1000).toFixed(2)}s</td>
-                                <td style={{ padding: "6px 8px", textAlign: "right" }}>{stats.total_tokens.toLocaleString()}</td>
-                                <td style={{ padding: "6px 8px", textAlign: "right" }}>${stats.estimated_cost.toFixed(4)}</td>
-                              </tr>
-                            ))}
-                        </tbody>
-                        {(() => {
-                          const totals = Object.entries(metrics.by_node).filter(([n]) => n.startsWith("_total"));
-                          if (!totals.length) return null;
-                          return (
-                            <tfoot>
-                              <tr style={{ borderTop: "2px solid #e5e7eb", fontWeight: 600 }}>
-                                <td style={{ padding: "6px 8px" }}>合计</td>
-                                <td style={{ padding: "6px 8px", textAlign: "right" }}>{metrics.call_count}</td>
-                                <td style={{ padding: "6px 8px", textAlign: "right" }}>{(metrics.total_latency_ms / 1000).toFixed(2)}s</td>
-                                <td style={{ padding: "6px 8px", textAlign: "right" }}>{metrics.total_tokens.toLocaleString()}</td>
-                                <td style={{ padding: "6px 8px", textAlign: "right" }}>${metrics.estimated_cost_usd.toFixed(4)}</td>
-                              </tr>
-                            </tfoot>
-                          );
-                        })()}
-                      </table>
-                    </div>
-                  </details>
-                ) : null}
+              </section>
+            ) : null}
+
+            {task.status === "failed" ? (
+              <section className="subsection">
+                <h2>任务失败</h2>
+                {task.error ? <p className="error-text">{task.error}</p> : null}
+                {task.failed_stage ? <p className="muted">失败阶段：{task.failed_stage}</p> : null}
+                <button className="secondary-button" disabled={submitting} onClick={handleRetry} type="button">
+                  重试任务
+                </button>
               </section>
             ) : null}
           </>

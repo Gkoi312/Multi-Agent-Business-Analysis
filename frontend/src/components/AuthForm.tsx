@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 
 type AuthFormProps = {
   title: string;
@@ -51,7 +51,7 @@ export function AuthForm({ title, submitLabel, onSubmit, footer }: AuthFormProps
         </label>
         {error ? <p className="error-text">{error}</p> : null}
         <button className="primary-button" disabled={submitting} type="submit">
-          {submitting ? "提交中…" : submitLabel}
+          {submitting ? "提交中..." : submitLabel}
         </button>
       </form>
       <div className="auth-footer">{footer}</div>

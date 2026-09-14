@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+﻿import type { ReactNode } from "react";
 import { Navigate } from "react-router-dom";
 
 import { useAuth } from "../hooks/useAuth";
@@ -11,7 +11,7 @@ export function RequireAuth({ children }: RequireAuthProps) {
   const { loading, isAuthenticated } = useAuth();
 
   if (loading) {
-    return <section className="panel">加载会话中…</section>;
+    return <section className="panel">加载会话中...</section>;
   }
 
   if (!isAuthenticated) {
